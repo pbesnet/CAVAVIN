@@ -1294,23 +1294,15 @@ function _isDemoData(d){
   return d.caves.every(c=>c._demo||c.description==='Démonstration');
 }
 async function loadSharedData(){
-  try{
-    const _t0=performance.now();
-    const r=await fetch(`${API_URL}/api/data`,{headers:authHeaders()});
-    const _tLoad=Math.round(performance.now()-_t0);
-    console.log(`[API] loadSharedData: ${_tLoad}ms`);
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    const resp=await r.json();
-    const data=resp.data;
-    const api_key=resp.api_key;
-    updateDbStatus('connected');
-    const remoteHasCaves=data?.caves?.length>0;
-    if(remoteHasCaves){
-      if(_isDemoData(data)){
-        console.warn('loadSharedData: données démo détectées — ignorées');
-        db={caves:[],wines:[],journal:[],nCave:0,nWine:0,statsAnnuelles:{}};
-        return;
-      }
+  onst r = await fetch(`${API_URL}/api/data`, { headers: authHeaders() });
+const resp = await r.json();
+const remoteData = resp.data;
+
+if (remoteData && (remoteData.wines?.length > 0 || remoteData.caves?.length > 0)) {
+    db = remoteData; // Injecte les données réelles récupérées sur Aiven
+    localStorage.setItem('cavedb', JSON.stringify(db)); // Écrase le cache local vide
+    return true;
+}
       db=data;
       db.caves=db.caves||[];db.wines=db.wines||[];db.journal=db.journal||[];
       db.nCave=db.nCave||1;db.nWine=db.nWine||1;
