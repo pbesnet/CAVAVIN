@@ -169,6 +169,55 @@ app.post('/api/data', requireAuth, async (req, res) => {
   }
 });
 
+// PATCH /api/data — Mise à jour incrémentale (delta sync)
+app.patch('/api/data', requireAuth, async (req, res) => {
+  const { meta, wines, deletedWineIds, caves, deletedCaveIds, journal } = req.body || {};
+  const t0 = Date.now();
+  try {
+    const { rows } = await pool.query('SELECT data FROM shared_data WHERE id=$1', ['main']);
+    const current = rows[0]?.data || { caves: [], wines: [], journal: [], nCave: 1, nWine: 1 };
+    current.wines   = current.wines   || [];
+    current.caves   = current.caves   || [];
+    current.journal = current.journal || [];
+
+    if (Array.isArray(wines) && wines.length) {
+      wines.forEach(w => {
+        const idx = current.wines.findIndex(x => x.id === w.id);
+        if (idx >= 0) current.wines[idx] = w; else current.wines.push(w);
+      });
+    }
+    if (Array.isArray(deletedWineIds) && deletedWineIds.length)
+      current.wines = current.wines.filter(w => !deletedWineIds.includes(w.id));
+
+    if (Array.isArray(caves) && caves.length) {
+      caves.forEach(c => {
+        const idx = current.caves.findIndex(x => x.id === c.id);
+        if (idx >= 0) current.caves[idx] = c; else current.caves.push(c);
+      });
+    }
+    if (Array.isArray(deletedCaveIds) && deletedCaveIds.length)
+      current.caves = current.caves.filter(c => !deletedCaveIds.includes(c.id));
+
+    if (Array.isArray(journal) && journal.length)
+      current.journal = [...current.journal, ...journal];
+
+    if (meta) {
+      if (meta.nCave !== undefined) current.nCave = meta.nCave;
+      if (meta.nWine !== undefined) current.nWine = meta.nWine;
+    }
+
+    await pool.query(
+      'UPDATE shared_data SET data=$1::jsonb, updated_at=NOW() WHERE id=$2',
+      [JSON.stringify(current), 'main']
+    );
+    console.log(`[DB] patchData: ${Date.now()-t0}ms (w:${wines?.length||0} dw:${deletedWineIds?.length||0} c:${caves?.length||0} j:${journal?.length||0})`);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('patchData error:', e);
+    res.status(500).json({ error: 'Erreur patch données' });
+  }
+});
+
 // POST /api/admin/api-key  (admin seulement) — Sauvegarder la clé Anthropic
 app.post('/api/admin/api-key', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin')
