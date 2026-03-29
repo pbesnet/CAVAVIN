@@ -29,7 +29,12 @@ const pool = new Pool({
 
 // ── Middlewares ───────────────────────────────────────────────
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
-app.use(express.json({ limit: '10mb' }));
+
+// FORCE la limite à 50mb pour le JSON (données + photos)
+app.use(express.json({ limit: '50mb' }));
+
+// Ajoute aussi celle-ci pour gérer les formulaires volumineux
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Middleware auth : vérifie le JWT dans Authorization: Bearer <token>
 function requireAuth(req, res, next) {
