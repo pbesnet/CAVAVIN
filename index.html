@@ -1135,6 +1135,37 @@ const API_URL=(()=>{
   return stored||'https://cavavin-s5pm.onrender.com';
 })();
 
+async function loadCloudData() {
+  const token = localStorage.getItem('cavavin_token');
+  if (!token) return false;
+
+  updateSyncStatus("🔄 Récupération de vos vins...");
+  try {
+    const r = await fetch(`${API_URL}/api/data`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const resp = await r.json();
+    const remoteData = resp.data;
+
+    // FORCE : Si Aiven a des données (vins ou caves), on écrase le local vide
+    if (remoteData && (remoteData.wines?.length > 0 || remoteData.caves?.length > 0)) {
+      db = remoteData;
+      // On met à jour le stockage local avec les vraies données du Cloud
+      localStorage.setItem(lsKey(), JSON.stringify(db));
+      updateSyncStatus("✅ Données synchronisées");
+      console.log("✅ Données Aiven chargées avec succès");
+      return true;
+    } else {
+      updateSyncStatus("⚠️ Aucune donnée sur le Cloud");
+      console.warn("La base distante est vide ou mal formatée");
+    }
+  } catch (e) {
+    console.error("Erreur de connexion Aiven:", e);
+    updateSyncStatus("🔴 Erreur réseau");
+  }
+  return false;
+}
+
 // ═══════════════════════════════════════════
 // AUTH — JWT stocké en localStorage
 // ═══════════════════════════════════════════
@@ -3597,7 +3628,7 @@ document.addEventListener('visibilitychange',()=>{
     if(!currentUser||!_jwtToken||isDemo)return;
     const elapsed=Date.now()-_lastVisibleAt;
     if(elapsed>5*60*1000){
-      loadSharedData().then(()=>renderPage()).catch(()=>{});
+      CSharedData().then(()=>renderPage()).catch(()=>{});
     } else if(_pendingSync){
       _doCloudSync();
     }
