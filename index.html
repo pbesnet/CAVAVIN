@@ -1293,63 +1293,26 @@ function _isDemoData(d){
   if(!d?.caves?.length)return false;
   return d.caves.every(c=>c._demo||c.description==='Démonstration');
 }
-async function loadSharedData(){
-  const resp = await r.json();
-    const remoteData = resp.data;
-    updateDbStatus('connected');
 
-    // FORCE : On accepte les données si on trouve des vins OU des caves
+async function loadSharedData(){
+  const token = localStorage.getItem('cavavin_token');
+  if (!token) return false;
+  try {
+    const r = await fetch(`${API_URL}/api/data`, { headers: authHeaders() });
+    const resp = await r.json();
+    const remoteData = resp.data;
+
+    // FORCE : Si Aiven a des données (vins ou caves), on écrase le local vide
     if (remoteData && (remoteData.wines?.length > 0 || remoteData.caves?.length > 0)) {
       db = remoteData;
-      localStorage.setItem('cavedb', JSON.stringify(db)); // Écrase la "Cave Salon" vide
+      localStorage.setItem('cavedb', JSON.stringify(db)); // Écrase le cache local vide
+      console.log("✅ Données Cloud restaurées");
       return true;
     }
-
-if (remoteData && (remoteData.wines?.length > 0 || remoteData.caves?.length > 0)) {
-    db = remoteData; // Injecte les données réelles récupérées sur Aiven
-    localStorage.setItem('cavedb', JSON.stringify(db)); // Écrase le cache local vide
-    return true;
-}
-      db=data;
-      db.caves=db.caves||[];db.wines=db.wines||[];db.journal=db.journal||[];
-      db.nCave=db.nCave||1;db.nWine=db.nWine||1;
-      try{localStorage.setItem('cavedb',JSON.stringify(db));}catch(e){}
-    } else {
-      // Base distante vide → migration depuis localStorage si données RÉELLES
-      const local=localStorage.getItem('cavedb');
-      if(local){
-        try{
-          const parsed=JSON.parse(local);
-          const hasRealCaves=parsed?.caves?.length && !_isDemoData(parsed);
-          if(hasRealCaves){
-            db=parsed;
-            db.caves=db.caves||[];db.wines=db.wines||[];db.journal=db.journal||[];
-            db.nCave=db.nCave||1;db.nWine=db.nWine||1;
-            await fetch(`${API_URL}/api/data`,{method:'POST',headers:authHeaders(),body:JSON.stringify({data:db})});
-            showToast('📦 Données locales migrées vers le cloud !');
-            try{localStorage.setItem('cavedb',JSON.stringify(db));}catch(e){}
-          } else {
-            db={caves:[],wines:[],journal:[],nCave:0,nWine:0,statsAnnuelles:{}};
-          }
-        }catch(e2){console.log('migration locale:',e2);}
-      } else {
-        db={caves:[],wines:[],journal:[],nCave:0,nWine:0,statsAnnuelles:{}};
-      }
-    }
-    if(api_key){apiKey=api_key;localStorage.setItem('anthropic_key',apiKey);}
-    else{apiKey=localStorage.getItem('anthropic_key')||'';}
-    ensureVracCave();
-  }catch(e){
-    console.warn('loadSharedData error, fallback local:',e);
-    updateDbStatus('offline');
-    const local=localStorage.getItem('cavedb');
-    if(local&&!_isDemoData(JSON.parse(local||'{}'))) {
-      try{db=JSON.parse(local);}catch(_){}
-      showToast('⚠️ Hors ligne — données locales chargées');
-    }
-    apiKey=localStorage.getItem('anthropic_key')||'';
-    ensureVracCave();
+  } catch (e) {
+    console.error("Erreur Cloud:", e);
   }
+  return false;
 }
 
 // — Rôle admin/user —
