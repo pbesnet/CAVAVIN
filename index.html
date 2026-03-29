@@ -1294,9 +1294,16 @@ function _isDemoData(d){
   return d.caves.every(c=>c._demo||c.description==='Démonstration');
 }
 async function loadSharedData(){
-  onst r = await fetch(`${API_URL}/api/data`, { headers: authHeaders() });
-const resp = await r.json();
-const remoteData = resp.data;
+  const resp = await r.json();
+    const remoteData = resp.data;
+    updateDbStatus('connected');
+
+    // FORCE : On accepte les données si on trouve des vins OU des caves
+    if (remoteData && (remoteData.wines?.length > 0 || remoteData.caves?.length > 0)) {
+      db = remoteData;
+      localStorage.setItem('cavedb', JSON.stringify(db)); // Écrase la "Cave Salon" vide
+      return true;
+    }
 
 if (remoteData && (remoteData.wines?.length > 0 || remoteData.caves?.length > 0)) {
     db = remoteData; // Injecte les données réelles récupérées sur Aiven
