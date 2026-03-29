@@ -1314,7 +1314,7 @@ async function loadSharedData(){
       db=data;
       db.caves=db.caves||[];db.wines=db.wines||[];db.journal=db.journal||[];
       db.nCave=db.nCave||1;db.nWine=db.nWine||1;
-      _buildSnapshot(); // initialise le snapshot pour le delta sync
+      _buildSnapshot();
       try{localStorage.setItem('cavedb',JSON.stringify(db));}catch(e){}
     } else {
       // Base distante vide → migration depuis localStorage si données RÉELLES
@@ -1328,7 +1328,6 @@ async function loadSharedData(){
             db.caves=db.caves||[];db.wines=db.wines||[];db.journal=db.journal||[];
             db.nCave=db.nCave||1;db.nWine=db.nWine||1;
             await fetch(`${API_URL}/api/data`,{method:'POST',headers:authHeaders(),body:JSON.stringify({data:db})});
-            _buildSnapshot();
             showToast('📦 Données locales migrées vers le cloud !');
             try{localStorage.setItem('cavedb',JSON.stringify(db));}catch(e){}
           } else {
@@ -1850,8 +1849,8 @@ function dbSave(){
 }
 
 // ── Snapshot pour delta sync ──────────────────────────────────
-let _snapWines=new Map();   // id → JSON string
-let _snapCaves=new Map();   // id → JSON string
+let _snapWines=new Map();
+let _snapCaves=new Map();
 let _snapJournalLen=0;
 
 function _buildSnapshot(){
@@ -1876,18 +1875,17 @@ async function _doCloudSync(retrying=false,forceFull=false){
   if(!_jwtToken||!currentUser||isDemo)return;
   try{
     const _t0=performance.now();
-    // Calcul du delta — si snapshot vide ou forceFull → sync complète
     const snapshotReady=_snapWines.size>0||_snapCaves.size>0||_snapJournalLen>0||db.wines.length===0;
     let method,url,body;
     if(forceFull||!snapshotReady){
-      method='POST'; url=`${API_URL}/api/data`;
+      method='POST';url=`${API_URL}/api/data`;
       body=JSON.stringify({data:db});
     }else{
       const delta=_computeDelta();
       const hasChanges=delta.changedWines.length||delta.deletedWineIds.length||
                        delta.changedCaves.length||delta.deletedCaveIds.length||delta.newJournal.length;
-      if(!hasChanges){_pendingSync=false;return;} // rien à envoyer
-      method='PATCH'; url=`${API_URL}/api/data`;
+      if(!hasChanges){_pendingSync=false;return;}
+      method='PATCH';url=`${API_URL}/api/data`;
       body=JSON.stringify({
         meta:{nCave:db.nCave,nWine:db.nWine},
         wines:delta.changedWines,
@@ -1896,11 +1894,11 @@ async function _doCloudSync(retrying=false,forceFull=false){
         deletedCaveIds:delta.deletedCaveIds,
         journal:delta.newJournal
       });
-      console.log(`[PATCH] wines:${delta.changedWines.length} del:${delta.deletedWineIds.length} caves:${delta.changedCaves.length} j:${delta.newJournal.length}`);
+      console.log(`[PATCH] w:${delta.changedWines.length} del:${delta.deletedWineIds.length} c:${delta.changedCaves.length} j:${delta.newJournal.length}`);
     }
     const r=await fetch(url,{method,headers:authHeaders(),body});
     if(!r.ok)throw new Error('HTTP '+r.status);
-    _buildSnapshot(); // met à jour le snapshot après succès
+    _buildSnapshot();
     const _tSync=Math.round(performance.now()-_t0);
     console.log(`[API] _doCloudSync (${method}): ${_tSync}ms`);
     _pendingSync=false;
