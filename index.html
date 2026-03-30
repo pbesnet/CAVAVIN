@@ -1352,9 +1352,22 @@ async function loadSharedData(){
       }
       // Fusionner journal : ajouter les entrées locales absentes du serveur
       if(!db.journal)db.journal=[];
+      // Fusionner journal local + backup journal
+      let allLocalJournal=[...localJournal];
+      try{
+        const jBak=localStorage.getItem('cavavin_journal_bak');
+        if(jBak){
+          const jBakArr=JSON.parse(jBak);
+          const inMain=new Set(allLocalJournal.map(j=>String(j.id)));
+          jBakArr.forEach(j=>{if(!inMain.has(String(j.id)))allLocalJournal.push(j);});
+        }
+      }catch(_){}
       const remoteJIds=new Set(db.journal.map(j=>String(j.id)));
-      localJournal.forEach(j=>{if(!remoteJIds.has(String(j.id)))db.journal.push(j);});
-      localStorage.setItem('cavedb', JSON.stringify(db)); // Écrase le cache local
+      allLocalJournal.forEach(j=>{if(!remoteJIds.has(String(j.id)))db.journal.push(j);});
+      // Sauvegarder en local (version allégée si quota)
+      try{localStorage.setItem('cavedb', JSON.stringify(db));}catch(_){
+        try{const lite={...db,wines:db.wines.map(w=>{const{photo,...r}=w;return r;})};localStorage.setItem('cavedb',JSON.stringify(lite));}catch(_2){}
+      }
       _updateSyncSnapshot(); // snapshot = état Aiven → diff sera vide si pas de modif locale
       console.log("✅ Données Cloud restaurées");
       return true;
@@ -1993,8 +2006,26 @@ function _computeDelta(){
 function dbSave(){
   // Sauvegarde locale toujours (sauf données purement éphémères)
   if(!db.caves.every(c=>c._demo)){
-    try{localStorage.setItem(lsKey(),JSON.stringify(db));}catch(e){}
+    try{
+      localStorage.setItem(lsKey(),JSON.stringify(db));
+    }catch(e){
+      // Quota dépassé → on sauvegarde une version allégée sans photos
+      try{
+        const lite={...db,wines:db.wines.map(w=>{const{photo,...rest}=w;return rest;})};
+        localStorage.setItem(lsKey(),JSON.stringify(lite));
+        console.warn('[dbSave] quota localStorage dépassé — photos exclues du cache local');
+      }catch(e2){
+        // En dernier recours : sauvegarder au moins les stats et le journal
+        try{
+          localStorage.setItem('cavavin_stats_bak',JSON.stringify(db.statsAnnuelles||{}));
+          localStorage.setItem('cavavin_journal_bak',JSON.stringify((db.journal||[]).slice(-50)));
+        }catch(_){}
+        console.warn('[dbSave] quota critique — seules les stats et les 50 dernières dégustations sauvegardées');
+      }
+    }
   }
+  // Toujours sauvegarder les stats séparément (clé légère)
+  try{localStorage.setItem('cavavin_stats_bak',JSON.stringify(db.statsAnnuelles||{}));}catch(_){}
   // Sync cloud uniquement en mode prod connecté
   if(!isDemo&&currentUser&&_jwtToken){
     _pendingSync=true;
@@ -4031,6 +4062,48 @@ function importBackupJSON(input){
 
 
 // ═══════════════════════════════════════════
+// MATURITÉ — déclarations AVANT initBackend() (évite TDZ sur const)
+// ═══════════════════════════════════════════
+// Statut de maturité (4 phases) — basé sur apogeeDebut/apogeeFin stockés par l'IA
+// Phase 1 maturation  : avant apogeeDebut                             → vert
+// Phase 2 debut_apogee: apogeeDebut → apogeeDebut + 40% de la fenêtre → jaune
+// Phase 3 apogee      : 40% → 100% de la fenêtre                     → orange
+// Phase 4 declin      : après apogeeFin                               → rouge
+function maturiteStatus(w){
+  if(!w.apogeeDebut||!w.apogeeFin)return null;
+  const now=new Date().getFullYear();
+  const d=w.apogeeDebut,f=w.apogeeFin;
+  if(now>f)return'declin';
+  const mid=d+Math.floor((f-d)*0.4);
+  if(now>=mid)return'apogee';
+  if(now>=d)return'debut_apogee';
+  return'maturation';
+}
+const MATURITE_CFG={
+  maturation: {color:'#4CAF50',label:'En maturation', title:'Vin encore jeune — laisser vieillir jusqu\'en '},
+  debut_apogee:{color:'#FDD835',label:'Début apogée', title:'Entrée dans la fenêtre d\'apogée — commence à s\'ouvrir'},
+  apogee:      {color:'#FF9800',label:'Apogée parfaite',title:'À son apogée optimale — à boire maintenant ✓'},
+  declin:      {color:'#E53935',label:'Déclin',         title:'Apogée dépassée — à boire sans attendre'},
+};
+function maturiteDot(w){
+  const st=maturiteStatus(w);if(!st)return'';
+  const cfg=MATURITE_CFG[st];
+  return`<span title="${cfg.title}" style="width:7px;height:7px;border-radius:50%;background:${cfg.color};flex-shrink:0;display:inline-block;box-shadow:0 0 0 1.5px rgba(0,0,0,.08);"></span>`;
+}
+// Pastille couleur vin
+function couleurPastille(couleur){
+  const MAP={
+    rouge: {bg:'var(--rouge-m)',label:'R',title:'Rouge'},
+    blanc: {bg:'var(--blanc-m)',label:'B',title:'Blanc'},
+    rosé:  {bg:'var(--rose-m)', label:'🌸',title:'Rosé'},
+    rose:  {bg:'var(--rose-m)', label:'🌸',title:'Rosé'},
+    champagne:{bg:'var(--champ-m)',label:'✦',title:'Champagne'},
+  };
+  const c=MAP[(couleur||'').toLowerCase()]||MAP.rouge;
+  return`<span title="${c.title}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:${c.bg};color:#fff;font-size:8px;font-weight:800;flex-shrink:0;letter-spacing:0;">${c.label}</span>`;
+}
+
+// ═══════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════
 dbLoad();
@@ -4330,45 +4403,6 @@ async function runInitMillesimeIA(){
   showToast(updated?`✅ ${updated} millésime${updated>1?'s':''} complété${updated>1?'s':''}`:'ℹ️ Aucun millésime trouvé — vérifiez les noms des vins');
   if(currentPage==='settings')renderSettings();
   if(currentPage==='supercave')renderSupercave();
-}
-
-// Statut de maturité (4 phases) — basé sur apogeeDebut/apogeeFin stockés par l'IA
-// Phase 1 maturation  : avant apogeeDebut                             → vert
-// Phase 2 debut_apogee: apogeeDebut → apogeeDebut + 40% de la fenêtre → jaune
-// Phase 3 apogee      : 40% → 100% de la fenêtre                     → orange
-// Phase 4 declin      : après apogeeFin                               → rouge
-function maturiteStatus(w){
-  if(!w.apogeeDebut||!w.apogeeFin)return null;
-  const now=new Date().getFullYear();
-  const d=w.apogeeDebut,f=w.apogeeFin;
-  if(now>f)return'declin';
-  const mid=d+Math.floor((f-d)*0.4); // pivot 40% : fin de "début apogée"
-  if(now>=mid)return'apogee';         // apogée parfaite
-  if(now>=d)return'debut_apogee';     // début apogée
-  return'maturation';                 // en maturation
-}
-const MATURITE_CFG={
-  maturation: {color:'#4CAF50',label:'En maturation', title:'Vin encore jeune — laisser vieillir jusqu\'en '},
-  debut_apogee:{color:'#FDD835',label:'Début apogée', title:'Entrée dans la fenêtre d\'apogée — commence à s\'ouvrir'},
-  apogee:      {color:'#FF9800',label:'Apogée parfaite',title:'À son apogée optimale — à boire maintenant ✓'},
-  declin:      {color:'#E53935',label:'Déclin',         title:'Apogée dépassée — à boire sans attendre'},
-};
-function maturiteDot(w){
-  const st=maturiteStatus(w);if(!st)return'';
-  const cfg=MATURITE_CFG[st];
-  return`<span title="${cfg.title}" style="width:7px;height:7px;border-radius:50%;background:${cfg.color};flex-shrink:0;display:inline-block;box-shadow:0 0 0 1.5px rgba(0,0,0,.08);"></span>`;
-}
-// Pastille couleur vin : petit rond coloré avec initiale pour rouge/blanc/rosé/champagne
-function couleurPastille(couleur){
-  const MAP={
-    rouge: {bg:'var(--rouge-m)',label:'R',title:'Rouge'},
-    blanc: {bg:'var(--blanc-m)',label:'B',title:'Blanc'},
-    rosé:  {bg:'var(--rose-m)', label:'🌸',title:'Rosé'},
-    rose:  {bg:'var(--rose-m)', label:'🌸',title:'Rosé'},
-    champagne:{bg:'var(--champ-m)',label:'✦',title:'Champagne'},
-  };
-  const c=MAP[(couleur||'').toLowerCase()]||MAP.rouge;
-  return`<span title="${c.title}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:${c.bg};color:#fff;font-size:8px;font-weight:800;flex-shrink:0;letter-spacing:0;">${c.label}</span>`;
 }
 
 function _showInvFilterOverlay(){
