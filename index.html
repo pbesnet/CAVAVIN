@@ -2879,47 +2879,9 @@ function saveWine(){
   }
 
   // ── MODE AJOUT ──
-  // Sélection intelligente : on cherche la cave idéale selon maturité + lieu
-  function smartCaveSelect(f,prefId){
-    const pref=getCave(prefId);
-    if(!pref||pref.vrac)return prefId;
-    // Préférer les valeurs IA si disponibles, sinon heuristique
-    const apogee=(_aiApogeeDebut&&_aiApogeeFin)
-      ?{apogeeDebut:_aiApogeeDebut,apogeeFin:_aiApogeeFin}
-      :computeApogeeHeuristic(f.couleur,f.region,f.millesime);
-    const st=maturiteStatus({...f,...apogee});
-    if(!st)return prefId;
-    // Seuls les blancs/rosés à leur apogée vont en cave de service
-    // Rouges et champagnes restent toujours en cave de vieillissement
-    const couleur=(f.couleur||'').toLowerCase();
-    const lieu=pref.lieu||null;  // déclaré ICI, avant tout usage
-    let isServiceCandidate=st==='apogee'&&(couleur==='blanc'||couleur==='rosé'||couleur==='rose');
-    // Règle : max 3 bouteilles identiques (même nom + millésime) en cave service par lieu.
-    // Au-delà, les nouvelles bouteilles vont en vieillissement.
-    // L'utilisateur peut toujours forcer manuellement via le placement multi-cave.
-    const MAX_SERVICE_IDENTICAL=3;
-    if(isServiceCandidate&&lieu){
-      const sCavesIds=new Set(db.caves.filter(c=>c.type==='service'&&c.lieu===lieu).map(c=>c.id));
-      const countInService=db.wines.filter(w=>sCavesIds.has(w.caveId)&&w.nom===f.nom&&w.millesime===f.millesime).length;
-      if(countInService>=MAX_SERVICE_IDENTICAL){
-        isServiceCandidate=false;
-      }
-    }
-    const targetType=isServiceCandidate?'service':'vieillissement';
-    const candidate=db.caves.find(c=>{
-      if(c.vrac||c.id===prefId)return false;
-      if(c.type!==targetType)return false;
-      if(lieu&&c.lieu!==lieu)return false;
-      return(caveTotal(c)-winesOfCave(c.id).length)>0;
-    });
-    return candidate?candidate.id:prefId;
-  }
-  const smartId=smartCaveSelect(fields,activeCave);
-  const cave=getCave(smartId)||getCave(activeCave);
+  // Placement dans la cave choisie par l'utilisateur — pas de dispatch automatique
+  const cave=getCave(activeCave);
   if(!cave){showToast('⚠️ Sélectionnez une cave');return;}
-  if(smartId!==activeCave&&_forcedPlacements.length===0){
-    showToast(`📍 Cave ${cave.name} sélectionnée (maturité)`);
-  }
 
   const qty=Math.max(1,Math.min(100,parseInt(document.getElementById('add-qty')?.value)||1));
 
