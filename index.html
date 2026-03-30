@@ -2120,6 +2120,7 @@ function topPositions(cave,wine,n){
   const zoneIdxs=z[wine.couleur]||z['rouge'];
   const simWines=[...winesOfCave(cave.id)]; // copie augmentée à chaque passe
   const result=[];
+  const _usedKeys=new Set(); // suit les (pos, depth) déjà suggérés
 
   for(let pass=0;pass<n;pass++){
     let candidates=[];
@@ -2136,10 +2137,11 @@ function topPositions(cave,wine,n){
                 ?simWines.find(w=>w.position===pos&&(w.depth||0)===dv)
                 :simWines.find(w=>w.position===pos);
               if(occupied)continue;
-              const key=pos+(maxDepthT===2?'_d'+dv:'');
-              if(result.includes(key))continue;
+              // Clé interne pour éviter le doublon (pos, depth) dans result
+              const _usedKey=pos+'|d'+dv;
+              if(_usedKeys.has(_usedKey))continue;
               const score=scorePos(cave,ci,r,c,wine,simWines,zoneIdxs)+(dv===0?1:0);
-              candidates.push({pos,key,score,ci,r,c,depth:dv});
+              candidates.push({pos,_usedKey,score,ci,r,c,depth:dv});
             }
           }
         }
@@ -2149,7 +2151,9 @@ function topPositions(cave,wine,n){
     if(!candidates.length)break;
     candidates.sort((a,b)=>b.r!==a.r?b.r-a.r:b.score-a.score);
     const best=candidates[0];
-    result.push(best.key||best.pos);
+    // Toujours retourner le pos simple (sans suffixe depth) pour la compatibilité UI
+    result.push(best.pos);
+    _usedKeys.add(best._usedKey||best.pos+'|d0');
     simWines.push({position:best.pos,depth:best.depth||0,couleur:wine.couleur,caveId:cave.id,id:-pass-1});
   }
   return result;
@@ -2188,53 +2192,58 @@ function setForcedNewPos(pos){
 
 // ── Rendu générique d'une grille de cave ──────────────────────────────
 function _renderCaveGrid(cave,allWines,{batchPosSet=new Set(),forcedPos=null,suggested=[],extraForcedPositions=[],extraSuggested=[],extraDelta=0,sz=14,gap=2,onClickFn='setForcedPos',editMode=false}={}){
+  // Helper : trouver la Nth occurrence de `val` dans array (0-based), retourne l'index dans array
+  function nthIdx(arr,val,n){let k=0;for(let i=0;i<arr.length;i++){if(arr[i]===val){if(k===n)return i;k++;}}return -1;}
+
   let html='<div style="display:flex;flex-direction:column;gap:2px;">';
   cave.clayettes.forEach((cl,ci)=>{
+    const clDepthG=cl.depth||1;
     html+=`<div style="display:flex;align-items:center;gap:6px;">`;
     html+=`<div style="font-size:8px;font-weight:600;color:var(--ink4);width:12px;text-align:right;flex-shrink:0;">${ci+1}</div>`;
     html+=`<div style="display:flex;flex-direction:column;gap:${gap}px;">`;
     for(let r=0;r<cl.rows;r++){
-      html+=`<div style="display:flex;gap:${gap}px;">`;
-      for(let c=0;c<cl.cols;c++){
-        const pos=mkPos(ci,r,c);
-        const occupiedWine=allWines.find(x=>x.position===pos);
-        const isBatch=batchPosSet.has(pos);
-        const isForced=forcedPos===pos;
-        const extraForcedIdx=extraForcedPositions.indexOf(pos);
-        const isForcedExtra=extraForcedIdx>=0;
-        const sugIdx=suggested.indexOf(pos);
-        const extraSugIdx=extraSuggested.indexOf(pos);
+      // Pour depth=2 : 2 sous-rangées par ligne (AR en haut = dv=1, AV en bas = dv=0)
+      const depthLevelsG=clDepthG===2?[[1,true,'AR'],[0,false,'AV']]:[[0,false,null]];
+      for(const [dv,dimmed,dlabel] of depthLevelsG){
+        const mbG=clDepthG===2?(dv===0?gap+'px':'1px'):(gap+'px');
+        html+=`<div style="display:flex;align-items:center;gap:${gap}px;${dimmed?'opacity:.65;':''}margin-bottom:${mbG};">`;
+        if(clDepthG===2) html+=`<div style="font-size:6px;font-weight:700;color:var(--ink4);width:10px;flex-shrink:0;text-align:right;line-height:${sz}px;">${dlabel}</div>`;
+        for(let c=0;c<cl.cols;c++){
+          const pos=mkPos(ci,r,c);
+          // Occupancy : pour depth=2, chercher le vin du bon rang de profondeur
+          const occupiedWine=clDepthG===2
+            ?allWines.find(x=>x.position===pos&&(x.depth||0)===dv)
+            :allWines.find(x=>x.position===pos);
+          const isBatch=batchPosSet.has(pos);
+          const isForced=forcedPos===pos;
+          const extraForcedIdx=extraForcedPositions.indexOf(pos);
+          const isForcedExtra=extraForcedIdx>=0;
+          // Pour depth=2 : la Nième occurrence du pos dans suggested correspond à dv=N (AV=0 en premier)
+          const sugIdx=clDepthG===2?nthIdx(suggested,pos,dv===0?0:1):suggested.indexOf(pos);
+          const extraSugIdx=clDepthG===2?nthIdx(extraSuggested,pos,dv===0?0:1):extraSuggested.indexOf(pos);
 
-        if(isForced){
-          // Bleu : déplacement forcé du vin principal
-          html+=`<div onclick="${onClickFn}('${pos}')" title="Position forcée" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;cursor:pointer;"></div>`;
-        } else if(isBatch){
-          // Vert vif : bouteille du lot (position actuelle)
-          html+=`<div onclick="${onClickFn}('${pos}')" title="Bouteille du lot — cliquer pour déplacer" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#50CC70,#1A8840);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2EA855;flex-shrink:0;cursor:pointer;"></div>`;
-        } else if(isForcedExtra){
-          // Bleu numéroté : position forcée manuellement pour une bouteille extra
-          html+=`<div onclick="${onClickFn}('${pos}')" title="Extra forcée #${extraForcedIdx+1}" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;cursor:pointer;">${extraForcedIdx+1}</div>`;
-        } else if(occupiedWine){
-          // Occupé par un autre vin
-          html+=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${_DOT_COLORS[occupiedWine.couleur]||'radial-gradient(circle at 35% 30%,#888,#444)'};opacity:.78;flex-shrink:0;" title="${occupiedWine.nom||''}"></div>`;
-        } else if(extraSugIdx>=0&&extraForcedPositions.length<extraDelta){
-          // Suggestion algo pour extras
-          const ratio=extraSuggested.length>1?extraSugIdx/(extraSuggested.length-1):0;
-          const g=Math.round(160+95*ratio);
-          const bg=`rgb(0,${g},68)`;
-          html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;line-height:1;box-shadow:0 0 0 2px #fff,0 0 0 3px ${bg};cursor:pointer;">${extraSugIdx+1}</div>`;
-        } else if(sugIdx>=0&&!forcedPos){
-          // Suggestion algo mode ajout
-          const ratio=suggested.length>1?sugIdx/(suggested.length-1):0;
-          const g=Math.round(160+95*ratio);
-          const bg=`rgb(0,${g},68)`;
-          html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;line-height:1;box-shadow:0 0 0 2px #fff,0 0 0 3px ${bg};cursor:pointer;">${sugIdx+1}</div>`;
-        } else {
-          // Libre
-          html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:var(--paper2);border:1.5px solid var(--paper3);box-sizing:border-box;flex-shrink:0;cursor:pointer;"></div>`;
+          if(isForced){
+            html+=`<div onclick="${onClickFn}('${pos}')" title="Position forcée" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;cursor:pointer;"></div>`;
+          } else if(isBatch){
+            html+=`<div onclick="${onClickFn}('${pos}')" title="Bouteille du lot — cliquer pour déplacer" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#50CC70,#1A8840);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2EA855;flex-shrink:0;cursor:pointer;"></div>`;
+          } else if(isForcedExtra){
+            html+=`<div onclick="${onClickFn}('${pos}')" title="Extra forcée #${extraForcedIdx+1}" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;cursor:pointer;">${extraForcedIdx+1}</div>`;
+          } else if(occupiedWine){
+            html+=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${_DOT_COLORS[occupiedWine.couleur]||'radial-gradient(circle at 35% 30%,#888,#444)'};opacity:.78;flex-shrink:0;" title="${occupiedWine.nom||''}"></div>`;
+          } else if(extraSugIdx>=0&&extraForcedPositions.length<extraDelta){
+            const ratio=extraSuggested.length>1?extraSugIdx/(extraSuggested.length-1):0;
+            const g=Math.round(160+95*ratio);const bg=`rgb(0,${g},68)`;
+            html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;line-height:1;box-shadow:0 0 0 2px #fff,0 0 0 3px ${bg};cursor:pointer;">${extraSugIdx+1}</div>`;
+          } else if(sugIdx>=0&&!forcedPos){
+            const ratio=suggested.length>1?sugIdx/(suggested.length-1):0;
+            const g=Math.round(160+95*ratio);const bg=`rgb(0,${g},68)`;
+            html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;line-height:1;box-shadow:0 0 0 2px #fff,0 0 0 3px ${bg};cursor:pointer;">${sugIdx+1}</div>`;
+          } else {
+            html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:var(--paper2);border:1.5px solid ${dimmed?'var(--paper3)':'var(--paper3)'};${dimmed?'border-style:dashed;':''}box-sizing:border-box;flex-shrink:0;cursor:pointer;"></div>`;
+          }
         }
+        html+='</div>';
       }
-      html+='</div>';
     }
     html+='</div></div>';
     if(ci<cave.clayettes.length-1)
@@ -2754,19 +2763,30 @@ function saveWine(){
       if(caveChanged){
         // Déplacement vers une autre cave
         const newCave=getCave(activeCave);
-        let newPos=null;
-        if(_forcedPosition&&!db.wines.find(w=>w.caveId===activeCave&&w.position===_forcedPosition)){
-          newPos=_forcedPosition;
-        } else {
-          newPos=bestPosition(newCave,editedWine)?.pos;
+        let newPos=null;let newDepth=0;
+        if(_forcedPosition){
+          // Vérifier si la position forcée a au moins un slot libre (depth-aware)
+          const fpPp=parsePos(_forcedPosition);
+          const fpCl=fpPp?newCave?.clayettes[fpPp.ci]:null;
+          const fpMaxD=fpCl?.depth||1;
+          const taken0=db.wines.find(w=>w.caveId===activeCave&&w.position===_forcedPosition&&(w.depth||0)===0);
+          const taken1=fpMaxD===2?db.wines.find(w=>w.caveId===activeCave&&w.position===_forcedPosition&&(w.depth||0)===1):true;
+          if(!taken0){newPos=_forcedPosition;newDepth=0;}
+          else if(fpMaxD===2&&!taken1){newPos=_forcedPosition;newDepth=1;}
         }
+        if(!newPos){const bp=bestPosition(newCave,editedWine);newPos=bp?.pos||null;newDepth=bp?.depth||0;}
         editedWine.caveId=activeCave;
         editedWine.position=newPos||null;
+        editedWine.depth=newDepth;
       } else {
-        // Même cave, position forcée différente
-        if(!db.wines.find(w=>w.id!==editId&&w.caveId===editedWine.caveId&&w.position===_forcedPosition)){
-          editedWine.position=_forcedPosition;
-        }
+        // Même cave, position forcée différente (depth-aware)
+        const fpPp2=parsePos(_forcedPosition);
+        const fpCl2=fpPp2?getCave(editedWine.caveId)?.clayettes[fpPp2.ci]:null;
+        const fpMaxD2=fpCl2?.depth||1;
+        const taken0s=db.wines.find(w=>w.id!==editId&&w.caveId===editedWine.caveId&&w.position===_forcedPosition&&(w.depth||0)===0);
+        const taken1s=fpMaxD2===2?db.wines.find(w=>w.id!==editId&&w.caveId===editedWine.caveId&&w.position===_forcedPosition&&(w.depth||0)===1):true;
+        if(!taken0s){editedWine.position=_forcedPosition;editedWine.depth=0;}
+        else if(fpMaxD2===2&&!taken1s){editedWine.position=_forcedPosition;editedWine.depth=1;}
       }
       // Mettre à jour aussi les autres bouteilles du lot (même cave que le vin édité)
       _editBatchIds.forEach(bid=>{
@@ -3087,18 +3107,26 @@ function buildMiniCaveSchema(wine,sz=0){
   html+=`<div style="font-size:10px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:4px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--rouge-m);display:inline-block;"></span>Position dans la cave</div>`;
   html+=`<div style="display:flex;flex-direction:column;gap:2px;">`;
   cave.clayettes.forEach((cl,ci)=>{
+    const clDepthS=cl.depth||1;
     html+=`<div style="display:flex;align-items:center;gap:6px;">`;
     html+=`<div style="font-size:8px;font-weight:600;color:var(--ink4);width:14px;text-align:right;flex-shrink:0;">${ci+1}</div>`;
     html+=`<div style="display:flex;flex-direction:column;gap:${gap}px;">`;
     for(let r=0;r<cl.rows;r++){
-      html+=`<div style="display:flex;gap:${gap}px;">`;
-      for(let c=0;c<cl.cols;c++){
-        const pos=mkPos(ci,r,c);
-        const w=allWines.find(x=>x.position===pos);
-        const isTarget=pos===wine.position;
-        html+=_dot(sz,isTarget?'target':w?'wine':'empty',w?.couleur);
+      const depthLevelsS=clDepthS===2?[[1,true,'AR'],[0,false,'AV']]:[[0,false,null]];
+      for(const [dv,dimmed,dlabel] of depthLevelsS){
+        html+=`<div style="display:flex;align-items:center;gap:${gap}px;${dimmed?'opacity:.6;':''}">`;
+        if(clDepthS===2) html+=`<div style="font-size:6px;font-weight:700;color:var(--ink4);width:10px;flex-shrink:0;text-align:right;line-height:${sz}px;">${dlabel}</div>`;
+        for(let c=0;c<cl.cols;c++){
+          const pos=mkPos(ci,r,c);
+          const w=clDepthS===2
+            ?allWines.find(x=>x.position===pos&&(x.depth||0)===dv)
+            :allWines.find(x=>x.position===pos);
+          // Ce vin = même position ET même profondeur
+          const isTarget=pos===wine.position&&(clDepthS===1||(wine.depth||0)===dv);
+          html+=_dot(sz,isTarget?'target':w?'wine':'empty',w?.couleur);
+        }
+        html+='</div>';
       }
-      html+='</div>';
     }
     html+='</div></div>';
     if(ci<cave.clayettes.length-1)
@@ -5836,13 +5864,32 @@ function executeManualTransfers(){
     const dstCave=getCave(transferManualDstId);
     if(!dstCave)return;
     // Position finale : forcée prioritaire sur algo
+    const isForced=!!_manualForcedPos[p.wineId];
     const finalPos=_manualForcedPos[p.wineId]||p.pos;
-    const conflict=db.wines.find(w=>w.id!==p.wineId&&w.caveId===transferManualDstId&&w.position===finalPos);
-    if(conflict){showToast(`⚠️ Position ${finalPos} déjà occupée pour ${wine.nom}`);return;}
+    // Déterminer la profondeur à la position finale
+    const ppM=parsePos(finalPos);
+    const dstClM=ppM?dstCave.clayettes[ppM.ci]:null;
+    const maxDepthM=dstClM?.depth||1;
+    let finalDepth=isForced?0:( p.depth||0);
+    if(maxDepthM===2){
+      // Si forcé manuellement, chercher première profondeur libre
+      if(isForced){
+        const taken0=db.wines.find(w=>w.id!==p.wineId&&w.caveId===transferManualDstId&&w.position===finalPos&&(w.depth||0)===0);
+        finalDepth=taken0?1:0;
+      }
+      // Vérifier que la profondeur cible est libre
+      const conflictM=db.wines.find(w=>w.id!==p.wineId&&w.caveId===transferManualDstId&&w.position===finalPos&&(w.depth||0)===finalDepth);
+      if(conflictM){showToast(`⚠️ Position ${finalPos} (${finalDepth===0?'AV':'AR'}) déjà occupée pour ${wine.nom}`);return;}
+    } else {
+      if(db.wines.find(w=>w.id!==p.wineId&&w.caveId===transferManualDstId&&w.position===finalPos)){
+        showToast(`⚠️ Position ${finalPos} déjà occupée pour ${wine.nom}`);return;
+      }
+    }
     // Cascade dans la cave source avant de déplacer
     cascadeAfterRemoval(wine);
     wine.caveId=transferManualDstId;
     wine.position=finalPos;
+    wine.depth=finalDepth;
     done++;
   });
   dbSave();
@@ -5963,11 +6010,11 @@ function buildTransferManualHtml(){
           algoPlanned.push({wineId:wine.id,pos:forced,wine,forced:true});
         } else {
           const extra=virtMap[dstCave.id]||[];
-          const pos=bestPosition(dstCave,{couleur:wine.couleur,region:wine.region,millesime:wine.millesime,caveId:dstCave.id},extra);
-          if(pos){
+          const bp=bestPosition(dstCave,{couleur:wine.couleur,region:wine.region,millesime:wine.millesime,caveId:dstCave.id},extra);
+          if(bp){
             if(!virtMap[dstCave.id])virtMap[dstCave.id]=[];
-            virtMap[dstCave.id].push({position:pos.pos,couleur:wine.couleur,caveId:dstCave.id,id:-(wine.id)});
-            algoPlanned.push({wineId:wine.id,pos:pos.pos,wine,forced:false});
+            virtMap[dstCave.id].push({position:bp.pos,depth:bp.depth||0,couleur:wine.couleur,caveId:dstCave.id,id:-(wine.id)});
+            algoPlanned.push({wineId:wine.id,pos:bp.pos,depth:bp.depth||0,wine,forced:false});
           }
         }
       }
@@ -6043,13 +6090,26 @@ function executeTransfer(wineId,targetCaveId,targetPos,recoIdx){
   if(!wine){showToast('⚠️ Vin introuvable');return;}
   const dstCave=getCave(targetCaveId);
   if(!dstCave){showToast('⚠️ Cave cible introuvable');return;}
-  // Vérifier que la position est libre
-  const conflict=db.wines.find(w=>w.id!==wineId&&w.caveId===targetCaveId&&w.position===targetPos);
-  if(conflict){showToast('⚠️ Position déjà occupée — réanalyse en cours');transferRecoSuggestions=null;transferRecoVirtuals={};renderTransfer();return;}
+  // Déterminer la profondeur cible (depth=2 : essayer AV d'abord)
+  const pp=parsePos(targetPos);
+  const dstCl=pp?dstCave.clayettes[pp.ci]:null;
+  const maxDepthE=dstCl?.depth||1;
+  let targetDepth=0;
+  if(maxDepthE===2){
+    const taken0=db.wines.find(w=>w.id!==wineId&&w.caveId===targetCaveId&&w.position===targetPos&&(w.depth||0)===0);
+    const taken1=db.wines.find(w=>w.id!==wineId&&w.caveId===targetCaveId&&w.position===targetPos&&(w.depth||0)===1);
+    if(taken0&&taken1){showToast('⚠️ Position déjà pleine (AV+AR) — réanalyse en cours');transferRecoSuggestions=null;transferRecoVirtuals={};renderTransfer();return;}
+    targetDepth=taken0?1:0;
+  } else {
+    if(db.wines.find(w=>w.id!==wineId&&w.caveId===targetCaveId&&w.position===targetPos)){
+      showToast('⚠️ Position déjà occupée — réanalyse en cours');transferRecoSuggestions=null;transferRecoVirtuals={};renderTransfer();return;
+    }
+  }
   // Cascade dans la cave source (les bouteilles au-dessus glissent vers le bas)
   cascadeAfterRemoval(wine);
   wine.caveId=targetCaveId;
   wine.position=targetPos;
+  wine.depth=targetDepth;
   dbSave();
   showToast((!currentUser||isDemo)?`💾 "${wine.nom}" transféré (hors ligne)`:`✅ "${wine.nom}" transféré vers ${dstCave.name}`);
   // Supprimer la suggestion de la liste si c'était un reco
