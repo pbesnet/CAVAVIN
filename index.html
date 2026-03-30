@@ -2151,8 +2151,8 @@ function topPositions(cave,wine,n){
     if(!candidates.length)break;
     candidates.sort((a,b)=>b.r!==a.r?b.r-a.r:b.score-a.score);
     const best=candidates[0];
-    // Toujours retourner le pos simple (sans suffixe depth) pour la compatibilité UI
-    result.push(best.pos);
+    // Retourner pos|d0 ou pos|d1 pour que _renderCaveGrid sache quelle rangée mettre en vert
+    result.push(best.pos+'|d'+(best.depth||0));
     _usedKeys.add(best._usedKey||best.pos+'|d0');
     simWines.push({position:best.pos,depth:best.depth||0,couleur:wine.couleur,caveId:cave.id,id:-pass-1});
   }
@@ -2194,6 +2194,8 @@ function setForcedNewPos(pos){
 function _renderCaveGrid(cave,allWines,{batchPosSet=new Set(),forcedPos=null,suggested=[],extraForcedPositions=[],extraSuggested=[],extraDelta=0,sz=14,gap=2,onClickFn='setForcedPos',editMode=false}={}){
   // Helper : trouver la Nth occurrence de `val` dans array (0-based), retourne l'index dans array
   function nthIdx(arr,val,n){let k=0;for(let i=0;i<arr.length;i++){if(arr[i]===val){if(k===n)return i;k++;}}return -1;}
+  // Helper : trouver l'index d'une suggestion "pos|dN" pour la rangée dvTarget (0=AV, 1=AR)
+  function _sugIdx(arr,p,dvTarget){return arr.findIndex(s=>{const[sp,sd]=s.split('|d');return sp===p&&(sd===undefined?0:+sd)===dvTarget;});}
 
   let html='<div style="display:flex;flex-direction:column;gap:2px;">';
   cave.clayettes.forEach((cl,ci)=>{
@@ -2217,34 +2219,35 @@ function _renderCaveGrid(cave,allWines,{batchPosSet=new Set(),forcedPos=null,sug
           // Pour depth=2 : on vérifie la rangée exacte (AV=0, AR=1) pour les états batch/forcé
           const batchKey=clDepthG===2?pos+'|d'+dv:pos;
           const isBatch=batchPosSet.has(batchKey)||batchPosSet.has(pos);
-          // forcedPos : affiché uniquement sur AV (dv=0) pour depth=2 — c'est là que bestPosition place en premier
+          // forcedPos (mode édition bouteille unique) : affiché uniquement sur AV (dv=0) pour depth=2
           const isForced=forcedPos===pos&&(clDepthG!==2||dv===0);
-          // extraForcedPositions : pour depth=2, même pos peut correspondre à 2 rangées
-          // On utilise nthIdx pour la rangée correcte
-          const extraForcedIdx=clDepthG===2?nthIdx(extraForcedPositions,pos,dv===0?0:1):extraForcedPositions.indexOf(pos);
+          // extraForcedPositions : tableau de clés "pos|dN" — même logique que suggestions
+          const extraForcedIdx=_sugIdx(extraForcedPositions,pos,dv);
           const isForcedExtra=extraForcedIdx>=0;
-          // Pour depth=2 : la Nième occurrence du pos dans suggested correspond à dv=N (AV=0 en premier)
-          const sugIdx=clDepthG===2?nthIdx(suggested,pos,dv===0?0:1):suggested.indexOf(pos);
-          const extraSugIdx=clDepthG===2?nthIdx(extraSuggested,pos,dv===0?0:1):extraSuggested.indexOf(pos);
+          // suggested/extraSuggested contiennent des clés "pos|d0" ou "pos|d1" → trouver par pos+depth
+          const sugIdx=_sugIdx(suggested,pos,dv);
+          const extraSugIdx=_sugIdx(extraSuggested,pos,dv);
+          // Arg click : passe le dv pour les caves depth=2 (permet de forcer la bonne rangée)
+          const _ca=clDepthG===2?`'${pos}',${dv}`:`'${pos}'`;
 
           if(isForced){
-            html+=`<div onclick="${onClickFn}('${pos}')" title="Position forcée" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;cursor:pointer;"></div>`;
+            html+=`<div onclick="${onClickFn}(${_ca})" title="Position forcée" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;cursor:pointer;"></div>`;
           } else if(isBatch){
-            html+=`<div onclick="${onClickFn}('${pos}')" title="Bouteille du lot — cliquer pour déplacer" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#50CC70,#1A8840);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2EA855;flex-shrink:0;cursor:pointer;"></div>`;
-          } else if(isForcedExtra){
-            html+=`<div onclick="${onClickFn}('${pos}')" title="Extra forcée #${extraForcedIdx+1}" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;cursor:pointer;">${extraForcedIdx+1}</div>`;
+            html+=`<div onclick="${onClickFn}(${_ca})" title="Bouteille du lot — cliquer pour déplacer" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#50CC70,#1A8840);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2EA855;flex-shrink:0;cursor:pointer;"></div>`;
           } else if(occupiedWine){
             html+=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${_DOT_COLORS[occupiedWine.couleur]||'radial-gradient(circle at 35% 30%,#888,#444)'};opacity:.78;flex-shrink:0;" title="${occupiedWine.nom||''}"></div>`;
+          } else if(isForcedExtra){
+            html+=`<div onclick="${onClickFn}(${_ca})" title="Extra forcée #${extraForcedIdx+1}" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;cursor:pointer;">${extraForcedIdx+1}</div>`;
           } else if(extraSugIdx>=0&&extraForcedPositions.length<extraDelta){
             const ratio=extraSuggested.length>1?extraSugIdx/(extraSuggested.length-1):0;
             const g=Math.round(160+95*ratio);const bg=`rgb(0,${g},68)`;
-            html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;line-height:1;box-shadow:0 0 0 2px #fff,0 0 0 3px ${bg};cursor:pointer;">${extraSugIdx+1}</div>`;
+            html+=`<div onclick="${onClickFn}(${_ca})" style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;line-height:1;box-shadow:0 0 0 2px #fff,0 0 0 3px ${bg};cursor:pointer;">${extraSugIdx+1}</div>`;
           } else if(sugIdx>=0&&!forcedPos){
             const ratio=suggested.length>1?sugIdx/(suggested.length-1):0;
             const g=Math.round(160+95*ratio);const bg=`rgb(0,${g},68)`;
-            html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;line-height:1;box-shadow:0 0 0 2px #fff,0 0 0 3px ${bg};cursor:pointer;">${sugIdx+1}</div>`;
+            html+=`<div onclick="${onClickFn}(${_ca})" style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;line-height:1;box-shadow:0 0 0 2px #fff,0 0 0 3px ${bg};cursor:pointer;">${sugIdx+1}</div>`;
           } else {
-            html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:var(--paper2);border:1.5px solid ${dimmed?'var(--paper3)':'var(--paper3)'};${dimmed?'border-style:dashed;':''}box-sizing:border-box;flex-shrink:0;cursor:pointer;"></div>`;
+            html+=`<div onclick="${onClickFn}(${_ca})" style="width:${sz}px;height:${sz}px;border-radius:50%;background:var(--paper2);border:1.5px solid ${dimmed?'var(--paper3)':'var(--paper3)'};${dimmed?'border-style:dashed;':''}box-sizing:border-box;flex-shrink:0;cursor:pointer;"></div>`;
           }
         }
         html+='</div>';
@@ -2377,7 +2380,7 @@ function renderPlacementPreview(){
     if(_rem>0||_fc.length>0){
       // Suggestions pour les places restantes non encore forcées dans cette cave
       _gridExtraSuggested=topPositions(cave,{couleur,caveId:cave.id},_fc.length+Math.max(0,_rem))
-        .filter(p=>!_fc.includes(p));
+        .filter(p=>!_fc.includes(p.split('|d')[0]));
     }
     // En mode ajout, on utilise extraForced/extraSuggested → supprimer suggestions main
     _gridSuggested=[];
@@ -2474,7 +2477,7 @@ function renderPlacementPreview(){
         const forcedInExtraCave=_forcedPlacements.filter(p=>p.caveId===extraCaveCandidate.id).map(p=>p.pos);
         const remInExtraCave=delta-_forcedPlacements.length;
         const extraSugPos=topPositions(extraCaveCandidate,{couleur,caveId:extraCaveCandidate.id},forcedInExtraCave.length+Math.max(0,remInExtraCave))
-          .filter(p=>!forcedInExtraCave.includes(p));
+          .filter(p=>!forcedInExtraCave.includes(p.split('|d')[0]));
         const maxColsE=extraCaveCandidate.clayettes.reduce((m,cl)=>Math.max(m,cl.cols),1);
         const szE=Math.max(10,Math.min(20,Math.floor((availW-(maxColsE-1)*2)/maxColsE)));
         const gapE=Math.max(2,Math.round(szE*.18));
@@ -2806,6 +2809,9 @@ function saveWine(){
       }
       // NB : les autres bouteilles du lot NE sont PAS déplacées
     }
+    // Capturer la position finale de la bouteille éditée pour le highlight
+    const editedFinalPos=db.wines.find(x=>x.id===editId)?.position||null;
+    const editedFinalCave=db.wines.find(x=>x.id===editId)?.caveId||activeCave;
     // 3. Nouvelles bouteilles supplémentaires (qty > 1)
     const newQty=Math.max(1,Math.min(100,parseInt(document.getElementById('add-qty')?.value)||1));
     const delta=newQty-1; // on édite 1 bouteille, les nouvelles = qty-1
@@ -2814,8 +2820,8 @@ function saveWine(){
       const qtyEl=document.getElementById('add-qty');if(qtyEl)qtyEl.value=1;
       return;
     }
+    const newPositions=[];
     if(delta>0){
-      const newPositions=[];
       const baseWine={...fields,notes:null,addedAt:new Date().toISOString()};
       // Placer d'abord les bouteilles forcées (multi-cave via _forcedPlacements)
       const byCave=new Map();
@@ -2854,11 +2860,13 @@ function saveWine(){
         }
       }
       trackMouvement('e',delta);
-      if(newPositions.length){
-        highlightPositions=newPositions;
-        if(highlightTimer)clearTimeout(highlightTimer);
-        highlightTimer=setTimeout(()=>{highlightPositions=[];renderCavePage();},5000);
-      }
+    }
+    // Highlight : bouteille éditée + nouvelles bouteilles (5 secondes en vert)
+    const allHL=[...(editedFinalPos?[editedFinalPos]:[]),...newPositions];
+    if(allHL.length){
+      highlightPositions=allHL;
+      if(highlightTimer)clearTimeout(highlightTimer);
+      highlightTimer=setTimeout(()=>{highlightPositions=[];renderCavePage();},5000);
     }
     _editBatchIds=[];
     editingWineId=null;
@@ -2874,7 +2882,8 @@ function saveWine(){
     } else {
       showToast(offline?`💾 ${nom} mis à jour (hors ligne)`:`✏️ ${nom} mis à jour`);
     }
-    nav('inv');renderInv();
+    activeCave=editedFinalCave;
+    nav('cave');renderCavePage();
     return;
   }
 
