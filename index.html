@@ -1838,9 +1838,38 @@ function trackMouvement(type,count=1){
   try{localStorage.setItem('cavavin_stats_bak',JSON.stringify(db.statsAnnuelles));}catch(_){}
 }
 
+// Initialise les entrées d'un mois précis à une valeur et sync en base immédiatement
+async function initStatsToday(countInput){
+  const count=parseInt(countInput,10);
+  if(isNaN(count)||count<0){showToast('⚠️ Nombre invalide');return;}
+  const now=new Date();
+  const yr=now.getFullYear().toString();
+  const mo=(now.getMonth()+1).toString().padStart(2,'0');
+  if(!db.statsAnnuelles)db.statsAnnuelles={};
+  if(!db.statsAnnuelles[yr])db.statsAnnuelles[yr]={};
+  const cur=db.statsAnnuelles[yr][mo]||{e:0,s:0};
+  db.statsAnnuelles[yr][mo]={e:count,s:cur.s||0};
+  try{localStorage.setItem('cavavin_stats_bak',JSON.stringify(db.statsAnnuelles));}catch(_){}
+  localStorage.setItem(lsKey(),JSON.stringify(db));
+  _syncSnapshotStats=JSON.stringify(db.statsAnnuelles);
+  // Sync immédiate vers le serveur (pas de debounce)
+  if(_jwtToken&&currentUser&&!isDemo){
+    try{
+      const payload={meta:{nCave:db.nCave,nWine:db.nWine,statsAnnuelles:db.statsAnnuelles}};
+      const r=await fetch(`${API_URL}/api/data`,{method:'PATCH',headers:authHeaders(),body:JSON.stringify(payload)});
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      showToast(`✅ ${count} entrées initialisées pour ${mo}/${yr} — sauvegardé en base`);
+    }catch(e){showToast('⚠️ Enregistré localement (serveur hors ligne)');}
+  }else{
+    showToast(`✅ ${count} entrées initialisées pour ${mo}/${yr}`);
+  }
+  if(currentPage==='supercave')renderSupercave();
+  if(currentPage==='settings')renderSettings();
+}
+
 // Recalcule les entrées depuis les IDs de vins (wine.id = Date.now() au moment de l'ajout)
-function recalcStatsFromWines(){
-  if(!confirm('Recalculer les entrées depuis la date d\'ajout de chaque bouteille ?\nCela réinitialisera les compteurs d\'entrées (les sorties sont conservées).'))return;
+async function recalcStatsFromWines(){
+  if(!confirm('Recalculer les entrées depuis la date d\'ajout de chaque bouteille ?\nLes entrées sont reconstruites depuis les horodatages d\'ajout. Les sorties sont conservées.'))return;
   const saved=db.statsAnnuelles||{};
   // Conserver les sorties existantes
   const newStats={};
@@ -1850,24 +1879,40 @@ function recalcStatsFromWines(){
       newStats[yr][mo]={e:0,s:data.s||0};
     }
   }
-  // Recalculer les entrées depuis les IDs
+  // Bornes temporelles valides : 2015 → aujourd'hui+1 (filtre les IDs non-timestamp)
+  const MIN_TS=new Date('2015-01-01').getTime();
+  const MAX_TS=Date.now()+86400000;
+  let counted=0;
   db.wines.forEach(w=>{
     try{
-      const d=new Date(w.id); // id = Date.now() au moment de l'ajout
-      if(isNaN(d.getTime()))return;
+      const ts=Number(w.id);
+      if(!ts||ts<MIN_TS||ts>MAX_TS)return; // ID non-timestamp → ignorer
+      const d=new Date(ts);
       const yr=d.getFullYear().toString();
       const mo=(d.getMonth()+1).toString().padStart(2,'0');
       if(!newStats[yr])newStats[yr]={};
       if(!newStats[yr][mo])newStats[yr][mo]={e:0,s:0};
-      newStats[yr][mo].e++;
+      newStats[yr][mo].e++;counted++;
     }catch(_){}
   });
+  if(!counted){
+    showToast('⚠️ Aucun vin avec ID horodaté — utilisez "Forcer entrées" à la place');
+    return;
+  }
   db.statsAnnuelles=newStats;
   try{localStorage.setItem('cavavin_stats_bak',JSON.stringify(db.statsAnnuelles));}catch(_){}
-  dbSave();
-  if(currentPage==='supercave')renderSupercave();
-  if(currentPage==='settings')renderSettings();
-  showToast('✅ Entrées recalculées depuis les dates d\'ajout');
+  localStorage.setItem(lsKey(),JSON.stringify(db));
+  _syncSnapshotStats=JSON.stringify(db.statsAnnuelles);
+  // Sync immédiate vers le serveur
+  if(_jwtToken&&currentUser&&!isDemo){
+    try{
+      const payload={meta:{nCave:db.nCave,nWine:db.nWine,statsAnnuelles:db.statsAnnuelles}};
+      await fetch(`${API_URL}/api/data`,{method:'PATCH',headers:authHeaders(),body:JSON.stringify(payload)});
+    }catch(_){}
+  }
+  if(currentPage==='supercave'){nav('supercave');renderSupercave();}
+  else{showToast(`✅ ${counted} entrées recalculées et sauvegardées en base`);}
+  showToast(`✅ ${counted} entrées recalculées — sauvegardé en base`);
 }
 
 let activeCave=null;
@@ -3300,7 +3345,10 @@ function fabTouchEnd(e){
 function renderJournal(){
   const list=document.getElementById('journal-list');
   if(!db.journal.length){list.innerHTML=`<div class="empty"><div class="empty-icon">📔</div><div>Aucune dégustation enregistrée</div></div>`;return;}
-  list.innerHTML=[...db.journal].reverse().map(j=>{
+  // Déduplication par ID (évite les doublons dus à une double-sync)
+  const seen=new Set();
+  const uniqueJournal=[...db.journal].reverse().filter(j=>{if(seen.has(j.id))return false;seen.add(j.id);return true;});
+  list.innerHTML=uniqueJournal.map(j=>{
     const stillInCave=db.wines.some(w=>w.id===j.wineId);
     const wFull=db.wines.find(w=>w.id===j.wineId);
     const rmBtn=stillInCave
@@ -3340,6 +3388,7 @@ function retireBottleFromJournal(journalId, wineId){
   if(!confirm(`Retirer "${w.nom}${w.millesime?' '+w.millesime:''}" de la cave ?`))return;
   cascadeAfterRemoval(w);
   db.wines=db.wines.filter(x=>x.id!==wineId);
+  trackMouvement('s'); // ← sortie comptabilisée (manquait)
   dbSave();renderJournal();renderCavePage();
   showToast('🍾 Bouteille retirée de la cave');
 }
@@ -4802,7 +4851,14 @@ function renderSettings(){
         <button id="btn-millesime-ia" class="btn btn-secondary" onclick="runInitMillesimeIA()" style="width:100%;font-size:13px;">🔍 Compléter les millésimes via IA</button>
         <button id="btn-maturite-heuristique" class="btn btn-secondary" onclick="runInitHeuristique()" style="width:100%;font-size:13px;">⚡ Init période apogée (heuristique)</button>
         <button id="btn-maturite-update" class="btn btn-secondary" onclick="runMaturiteUpdate()" style="width:100%;font-size:13px;">🤖 Recalculer apogée via IA (tous les vins)</button>
-        <button class="btn btn-secondary" onclick="recalcStatsFromWines()" style="width:100%;font-size:13px;margin-top:4px;border-top:1px solid var(--border);padding-top:11px;">📊 Recalculer les entrées depuis les dates d'ajout</button>
+        <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:10px;">
+          <div style="font-size:11px;color:var(--ink3);margin-bottom:7px;">📊 Corriger les statistiques entrées/sorties</div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <input id="init-stats-count" type="number" min="0" placeholder="118" value="118" class="form-input" style="flex:1;font-size:14px;padding:7px 10px;">
+            <button class="btn btn-secondary" onclick="initStatsToday(document.getElementById('init-stats-count').value)" style="white-space:nowrap;font-size:12px;flex-shrink:0;">Forcer ce chiffre aujourd'hui →</button>
+          </div>
+          <button class="btn btn-secondary" onclick="recalcStatsFromWines()" style="width:100%;font-size:12px;">🔄 Recalculer depuis les dates d'ajout</button>
+        </div>
       </div>
     </div>`;
   const backupSection=`
@@ -5516,8 +5572,35 @@ function renderSupercave(){
         </div>`;
       }).join('')}
     </div>
-    ${(()=>{const nSans=wines.filter(w=>!maturiteStatus(w)).length;return nSans?`<div style="font-size:10px;color:var(--ink3);margin-top:8px;">⚠️ ${nSans} vin${nSans>1?'s':''} sans données — lancez la mise à jour maturité dans les paramètres.</div>`:'';})()}
   </div>
+
+  <!-- VINS SANS MATURITÉ (maintenance) -->
+  ${(()=>{
+    const sansMat=wines.filter(w=>!w.apogeeDebut||!w.apogeeFin);
+    if(!sansMat.length)return'';
+    return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;border-left:3px solid #FF9800;">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;">🔧 Vins à compléter</div>
+        <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#FF980022;color:#E65100;">${sansMat.length} sans apogée</div>
+      </div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">Clique pour ouvrir et renseigner la période d'apogée manuellement</div>
+      <div style="display:flex;flex-direction:column;gap:5px;max-height:220px;overflow-y:auto;">
+        ${sansMat.map(w=>{
+          const cp=couleurPastille(w.couleur);
+          return`<div onclick="showDetail(${w.id})" style="display:flex;align-items:center;gap:9px;padding:8px 10px;background:var(--paper2);border-radius:9px;cursor:pointer;transition:background .15s;"
+                 onmouseover="this.style.background='var(--paper3)'" onmouseout="this.style.background='var(--paper2)'">
+            ${cp}
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${w.nom}</div>
+              <div style="font-size:10px;color:var(--ink3);">${[w.millesime,w.region,w.appellation].filter(Boolean).join(' · ')||'—'}</div>
+            </div>
+            <div style="font-size:10px;color:var(--ink4);flex-shrink:0;">✏️</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <button onclick="nav('settings')" style="margin-top:10px;width:100%;background:transparent;border:1px solid #FF9800;border-radius:8px;padding:7px 10px;font-size:12px;color:#E65100;cursor:pointer;">⚡ Lancer l'initialisation automatique →</button>
+    </div>`;
+  })()}
 
   <!-- COULEURS -->
   <div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;">
