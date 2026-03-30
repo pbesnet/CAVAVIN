@@ -4352,63 +4352,6 @@ async function runInitHeuristique(){
   if(currentPage==='settings')renderSettings();
 }
 
-// ── Complétion IA des millésimes manquants ────────────────────────────────────
-async function runInitMillesimeIA(){
-  if(!_jwtToken||!currentUser){showToast('⚠️ Connexion requise');return;}
-  const btn=document.getElementById('btn-millesime-ia');
-  const winesNoMil=db.wines.filter(w=>!w.millesime);
-  if(!winesNoMil.length){
-    showToast('ℹ️ Tous les vins ont un millésime');
-    return;
-  }
-  if(btn){btn.disabled=true;btn.textContent=`⏳ 0/${winesNoMil.length}…`;}
-  let updated=0;
-  const curYear=new Date().getFullYear();
-
-  // Vins AVEC photo : appel vision individuel (plus précis — lit l'étiquette)
-  const withPhoto=winesNoMil.filter(w=>w.photo);
-  for(let i=0;i<withPhoto.length;i++){
-    const w=withPhoto[i];
-    if(btn)btn.textContent=`⏳ ${i+1}/${winesNoMil.length}…`;
-    try{
-      const r=await apiCall([{role:'user',content:[
-        {type:'image',source:{type:'base64',media_type:w.photo.split(';')[0].split(':')[1],data:w.photo.split(',')[1]}},
-        {type:'text',text:`Vin : "${w.nom||''}"${w.producteur?' — '+w.producteur:''}${w.appellation?' ('+w.appellation+')':''}. Quel est le millésime (année de récolte) visible sur cette étiquette ? Réponds UNIQUEMENT avec un entier (ex: 2018), ou null si illisible.`}
-      ]}],50);
-      const mil=parseInt(r.trim());
-      if(mil>1900&&mil<=curYear){w.millesime=mil;updated++;}
-    }catch(e){console.warn('millesime IA photo err',e);}
-  }
-
-  // Vins SANS photo : appel texte par batch
-  const noPhoto=winesNoMil.filter(w=>!w.photo);
-  const batchSize=15;
-  for(let i=0;i<noPhoto.length;i+=batchSize){
-    if(btn)btn.textContent=`⏳ ${withPhoto.length+i+1}/${winesNoMil.length}…`;
-    const batch=noPhoto.slice(i,i+batchSize);
-    const ctx=batch.map(w=>`id=${w.id}|"${(w.nom||'').replace(/"/g,"'")}"|${w.couleur||''}|appellation:"${w.appellation||''}"|region:"${w.region||''}"|producteur:"${(w.producteur||'').replace(/"/g,"'")}"`).join('\n');
-    try{
-      const r=await apiCall([{role:'user',content:`Tu es expert en vins. Pour chaque vin listé, estime le millésime le plus probable (année de récolte) selon le nom, producteur, appellation et région. Si le vin existe en plusieurs millésimes, choisis le plus courant ou récent plausible. Réponds UNIQUEMENT en JSON array valide : [{"id":X,"millesime":YYYY},...]. Omets les vins dont le millésime est vraiment impossible à estimer.\n${ctx}`}],500);
-      const arr=JSON.parse(r.replace(/```json|```/g,'').trim());
-      arr.forEach(({id,millesime})=>{
-        const w=db.wines.find(x=>x.id===id);
-        const mil=parseInt(millesime);
-        if(w&&mil>1900&&mil<=curYear&&!w.millesime){w.millesime=mil;updated++;}
-      });
-    }catch(e){console.warn('millesime IA batch err',e);}
-  }
-
-  if(updated){
-    // Relancer l'heuristique apogée pour les vins qui viennent d'avoir un millésime
-    initMaturiteHeuristique();
-    dbSave();
-    if(!isDemo&&currentUser&&_jwtToken){clearTimeout(syncTimer);try{await _doCloudSync();}catch(_){}}
-  }
-  if(btn){btn.disabled=false;btn.textContent='🔍 Compléter les millésimes via IA';}
-  showToast(updated?`✅ ${updated} millésime${updated>1?'s':''} complété${updated>1?'s':''}`:'ℹ️ Aucun millésime trouvé — vérifiez les noms des vins');
-  if(currentPage==='settings')renderSettings();
-  if(currentPage==='supercave')renderSupercave();
-}
 
 function _showInvFilterOverlay(){
   // Retirer un éventuel overlay précédent
@@ -4887,17 +4830,8 @@ function renderSettings(){
         return msgs.length?`<div style="font-size:11px;color:var(--ink3);background:#FFF8E1;border-radius:8px;padding:8px 10px;margin-bottom:10px;">${msgs.join('<br>')}</div>`:'';
       })()}
       <div style="display:flex;flex-direction:column;gap:7px;">
-        <button id="btn-millesime-ia" class="btn btn-secondary" onclick="runInitMillesimeIA()" style="width:100%;font-size:13px;">🔍 Compléter les millésimes via IA</button>
         <button id="btn-maturite-heuristique" class="btn btn-secondary" onclick="runInitHeuristique()" style="width:100%;font-size:13px;">⚡ Init période apogée (heuristique)</button>
         <button id="btn-maturite-update" class="btn btn-secondary" onclick="runMaturiteUpdate()" style="width:100%;font-size:13px;">🤖 Recalculer apogée via IA (tous les vins)</button>
-        <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:10px;">
-          <div style="font-size:11px;color:var(--ink3);margin-bottom:7px;">📊 Corriger les statistiques entrées/sorties</div>
-          <div style="display:flex;gap:6px;margin-bottom:6px;">
-            <input id="init-stats-count" type="number" min="0" placeholder="118" value="118" class="form-input" style="flex:1;font-size:14px;padding:7px 10px;">
-            <button class="btn btn-secondary" onclick="initStatsToday(document.getElementById('init-stats-count').value)" style="white-space:nowrap;font-size:12px;flex-shrink:0;">Forcer ce chiffre aujourd'hui →</button>
-          </div>
-          <button class="btn btn-secondary" onclick="recalcStatsFromWines()" style="width:100%;font-size:12px;">🔄 Recalculer depuis les dates d'ajout</button>
-        </div>
       </div>
     </div>`;
   const backupSection=`
