@@ -1306,6 +1306,7 @@ async function loadSharedData(){
     if (remoteData && (remoteData.wines?.length > 0 || remoteData.caves?.length > 0)) {
       db = remoteData;
       localStorage.setItem('cavedb', JSON.stringify(db)); // Écrase le cache local vide
+      _updateSyncSnapshot(); // snapshot = état Aiven → diff sera vide si pas de modif locale
       console.log("✅ Données Cloud restaurées");
       return true;
     }
@@ -1795,6 +1796,44 @@ function renderPage(){checkPromoBadge();
 
 let _pendingSync=false; // true si des changements n'ont pas encore été envoyés
 
+// ── Snapshot diff pour sync incrémentale ─────────────────────
+// Stocke le dernier état synchronisé : {id: JSON_string_du_vin/cave}
+let _syncSnapshotWines={};
+let _syncSnapshotCaves={};
+
+function _updateSyncSnapshot(){
+  _syncSnapshotWines={};
+  db.wines.forEach(w=>{_syncSnapshotWines[String(w.id)]=JSON.stringify(w);});
+  _syncSnapshotCaves={};
+  db.caves.forEach(c=>{_syncSnapshotCaves[String(c.id)]=JSON.stringify(c);});
+}
+
+function _computeDelta(){
+  const changedWines=[];
+  const deletedWineIds=[];
+  const changedCaves=[];
+  const deletedCaveIds=[];
+  // Vins ajoutés ou modifiés
+  db.wines.forEach(w=>{
+    const k=String(w.id);
+    if(!_syncSnapshotWines[k]||_syncSnapshotWines[k]!==JSON.stringify(w))changedWines.push(w);
+  });
+  // Vins supprimés
+  Object.keys(_syncSnapshotWines).forEach(id=>{
+    if(!db.wines.find(w=>String(w.id)===id))deletedWineIds.push(Number(id));
+  });
+  // Caves ajoutées ou modifiées
+  db.caves.forEach(c=>{
+    const k=String(c.id);
+    if(!_syncSnapshotCaves[k]||_syncSnapshotCaves[k]!==JSON.stringify(c))changedCaves.push(c);
+  });
+  // Caves supprimées
+  Object.keys(_syncSnapshotCaves).forEach(id=>{
+    if(!db.caves.find(c=>String(c.id)===id))deletedCaveIds.push(Number(id));
+  });
+  return{changedWines,deletedWineIds,changedCaves,deletedCaveIds};
+}
+
 function dbSave(){
   // Sauvegarde locale toujours (sauf données purement éphémères)
   if(!db.caves.every(c=>c._demo)){
@@ -1813,14 +1852,36 @@ async function _doCloudSync(retrying=false){
   if(!_jwtToken||!currentUser||isDemo)return;
   try{
     const _t0=performance.now();
-    const r=await fetch(`${API_URL}/api/data`,{
-      method:'POST',
-      headers:authHeaders(),
-      body:JSON.stringify({data:db})
-    });
+    const delta=_computeDelta();
+    const hasChanges=delta.changedWines.length||delta.deletedWineIds.length||delta.changedCaves.length||delta.deletedCaveIds.length;
+    let r;
+    if(hasChanges){
+      // PATCH incrémental : envoie uniquement ce qui a changé
+      const payload={meta:{nCave:db.nCave,nWine:db.nWine}};
+      if(delta.changedWines.length)payload.wines=delta.changedWines;
+      if(delta.deletedWineIds.length)payload.deletedWineIds=delta.deletedWineIds;
+      if(delta.changedCaves.length)payload.caves=delta.changedCaves;
+      if(delta.deletedCaveIds.length)payload.deletedCaveIds=delta.deletedCaveIds;
+      r=await fetch(`${API_URL}/api/data`,{method:'PATCH',headers:authHeaders(),body:JSON.stringify(payload)});
+      console.log(`[API] PATCH delta: +${delta.changedWines.length}w -${delta.deletedWineIds.length}w +${delta.changedCaves.length}c -${delta.deletedCaveIds.length}c`);
+    }else{
+      // Rien à synchroniser (meta seul si snapshot vide = premier sync)
+      if(Object.keys(_syncSnapshotWines).length===0){
+        // Premier sync : POST complet pour garantir la cohérence
+        r=await fetch(`${API_URL}/api/data`,{method:'POST',headers:authHeaders(),body:JSON.stringify({data:db})});
+        console.log('[API] POST full (premier sync)');
+      }else{
+        // Tout est déjà à jour
+        _pendingSync=false;
+        updateDbStatus('connected');
+        updateSyncStatus('✅ Synchronisé');
+        return;
+      }
+    }
     if(!r.ok)throw new Error('HTTP '+r.status);
     const _tSync=Math.round(performance.now()-_t0);
     console.log(`[API] _doCloudSync: ${_tSync}ms`);
+    _updateSyncSnapshot(); // snapshot mis à jour après sync réussi
     _pendingSync=false;
     updateDbStatus('connected');
     updateSyncStatus(`✅ Synchronisé (${_tSync}ms)`);
@@ -2078,6 +2139,74 @@ function setForcedPos(pos){
   renderPlacementPreview();
 }
 
+function setForcedExtraPos(pos){
+  const idx=_forcedExtraPositions.indexOf(pos);
+  const batchTotal=_editBatchIds.length+1;
+  const delta=(Math.max(1,Math.min(100,parseInt(document.getElementById('add-qty')?.value)||1)))-batchTotal;
+  if(idx>=0){_forcedExtraPositions.splice(idx,1);}
+  else if(_forcedExtraPositions.length<delta){_forcedExtraPositions.push(pos);}
+  else{_forcedExtraPositions.splice(0,1);_forcedExtraPositions.push(pos);} // remplace le plus ancien
+  renderPlacementPreview();
+}
+
+// ── Rendu générique d'une grille de cave ──────────────────────────────
+function _renderCaveGrid(cave,allWines,{batchPosSet=new Set(),forcedPos=null,suggested=[],extraForcedPositions=[],extraSuggested=[],extraDelta=0,sz=14,gap=2,onClickFn='setForcedPos',editMode=false}={}){
+  let html='<div style="display:flex;flex-direction:column;gap:2px;">';
+  cave.clayettes.forEach((cl,ci)=>{
+    html+=`<div style="display:flex;align-items:center;gap:6px;">`;
+    html+=`<div style="font-size:8px;font-weight:600;color:var(--ink4);width:12px;text-align:right;flex-shrink:0;">${ci+1}</div>`;
+    html+=`<div style="display:flex;flex-direction:column;gap:${gap}px;">`;
+    for(let r=0;r<cl.rows;r++){
+      html+=`<div style="display:flex;gap:${gap}px;">`;
+      for(let c=0;c<cl.cols;c++){
+        const pos=mkPos(ci,r,c);
+        const occupiedWine=allWines.find(x=>x.position===pos);
+        const isBatch=batchPosSet.has(pos);
+        const isForced=forcedPos===pos;
+        const extraForcedIdx=extraForcedPositions.indexOf(pos);
+        const isForcedExtra=extraForcedIdx>=0;
+        const sugIdx=suggested.indexOf(pos);
+        const extraSugIdx=extraSuggested.indexOf(pos);
+
+        if(isForced){
+          // Bleu : déplacement forcé du vin principal
+          html+=`<div onclick="${onClickFn}('${pos}')" title="Position forcée" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;cursor:pointer;"></div>`;
+        } else if(isBatch){
+          // Vert vif : bouteille du lot (position actuelle)
+          html+=`<div onclick="${onClickFn}('${pos}')" title="Bouteille du lot — cliquer pour déplacer" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#50CC70,#1A8840);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2EA855;flex-shrink:0;cursor:pointer;"></div>`;
+        } else if(isForcedExtra){
+          // Bleu numéroté : position forcée manuellement pour une bouteille extra
+          html+=`<div onclick="${onClickFn}('${pos}')" title="Extra forcée #${extraForcedIdx+1}" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;cursor:pointer;">${extraForcedIdx+1}</div>`;
+        } else if(occupiedWine){
+          // Occupé par un autre vin
+          html+=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${_DOT_COLORS[occupiedWine.couleur]||'radial-gradient(circle at 35% 30%,#888,#444)'};opacity:.78;flex-shrink:0;" title="${occupiedWine.nom||''}"></div>`;
+        } else if(extraSugIdx>=0&&extraForcedPositions.length<extraDelta){
+          // Suggestion algo pour extras
+          const ratio=extraSuggested.length>1?extraSugIdx/(extraSuggested.length-1):0;
+          const g=Math.round(160+95*ratio);
+          const bg=`rgb(0,${g},68)`;
+          html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;line-height:1;box-shadow:0 0 0 2px #fff,0 0 0 3px ${bg};cursor:pointer;">${extraSugIdx+1}</div>`;
+        } else if(sugIdx>=0&&!forcedPos){
+          // Suggestion algo mode ajout
+          const ratio=suggested.length>1?sugIdx/(suggested.length-1):0;
+          const g=Math.round(160+95*ratio);
+          const bg=`rgb(0,${g},68)`;
+          html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;line-height:1;box-shadow:0 0 0 2px #fff,0 0 0 3px ${bg};cursor:pointer;">${sugIdx+1}</div>`;
+        } else {
+          // Libre
+          html+=`<div onclick="${onClickFn}('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:var(--paper2);border:1.5px solid var(--paper3);box-sizing:border-box;flex-shrink:0;cursor:pointer;"></div>`;
+        }
+      }
+      html+='</div>';
+    }
+    html+='</div></div>';
+    if(ci<cave.clayettes.length-1)
+      html+=`<div style="height:1px;background:var(--paper3);margin:1px 0 1px 18px;"></div>`;
+  });
+  html+='</div>';
+  return html;
+}
+
 function renderPlacementPreview(){
   const container=document.getElementById('placement-preview');
   if(!container)return;
@@ -2161,54 +2290,31 @@ function renderPlacementPreview(){
     }
   }
 
-  // ── Grille de la cave ─────────────────────────────────────────────────
-  html+='<div style="display:flex;flex-direction:column;gap:2px;">';
-  cave.clayettes.forEach((cl,ci)=>{
-    html+=`<div style="display:flex;align-items:center;gap:6px;">`;
-    html+=`<div style="font-size:8px;font-weight:600;color:var(--ink4);width:12px;text-align:right;flex-shrink:0;">${ci+1}</div>`;
-    html+=`<div style="display:flex;flex-direction:column;gap:${gap}px;">`;
-    for(let r=0;r<cl.rows;r++){
-      html+=`<div style="display:flex;gap:${gap}px;">`;
-      for(let c=0;c<cl.cols;c++){
-        const pos=mkPos(ci,r,c);
-        const occupiedOther=allWinesForSchema.find(x=>x.position===pos);
-        const isCurrentPos=isEditMode&&showingOriginalCave&&pos===_editOriginalPos;
-        const isForced=_forcedPosition===pos;
-        const sugIdx=!isEditMode?suggested.indexOf(pos):-1;
+  // ── Positions du lot actuel (cercles verts) ───────────────────────────
+  const batchPosSet=new Set();
+  if(isEditMode&&showingOriginalCave){
+    if(_editOriginalPos)batchPosSet.add(_editOriginalPos);
+    db.wines.filter(w=>_editBatchIds.includes(w.id)&&w.position&&w.caveId===_editOriginalCaveId)
+      .forEach(w=>batchPosSet.add(w.position));
+  }
 
-        if(isForced){
-          // Bleu : nouvelle position choisie manuellement
-          html+=`<div onclick="setForcedPos('${pos}')" title="Nouvelle position" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;cursor:pointer;"></div>`;
-        } else if(isCurrentPos&&!_forcedPosition){
-          // Vert vif : position actuelle du vin édité (cliquable pour la re-sélectionner si changée)
-          html+=`<div onclick="setForcedPos('${pos}')" title="Position actuelle — cliquer pour la forcer" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#50CC70,#1A8840);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2EA855;flex-shrink:0;cursor:pointer;"></div>`;
-        } else if(occupiedOther){
-          // Occupé par un autre vin
-          html+=_dot(sz,'wine',occupiedOther.couleur);
-        } else if(sugIdx>=0&&!_forcedPosition){
-          // Suggestion algo (mode ajout uniquement)
-          const ratio=suggested.length>1?sugIdx/(suggested.length-1):0;
-          const g=Math.round(160+95*ratio);
-          const bg=`rgb(0,${g},68)`;
-          html+=`<div onclick="setForcedPos('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;line-height:1;box-shadow:0 0 0 2px #fff,0 0 0 3px ${bg};cursor:pointer;">${sugIdx+1}</div>`;
-        } else {
-          // Libre
-          html+=`<div onclick="setForcedPos('${pos}')" style="width:${sz}px;height:${sz}px;border-radius:50%;background:var(--paper2);border:1.5px solid var(--paper3);box-sizing:border-box;flex-shrink:0;cursor:pointer;"></div>`;
-        }
-      }
-      html+='</div>';
-    }
-    html+='</div></div>';
-    if(ci<cave.clayettes.length-1)
-      html+=`<div style="height:1px;background:var(--paper3);margin:1px 0 1px 18px;"></div>`;
+  // ── Grille de la cave principale ──────────────────────────────────────
+  html+=_renderCaveGrid(cave,allWinesForSchema,{
+    batchPosSet,
+    forcedPos:_forcedPosition,
+    suggested:isEditMode?[]:suggested,
+    sz,gap,
+    onClickFn:'setForcedPos',
+    editMode:isEditMode
   });
-  html+='</div>';
 
-  // Légende
+  // Légende cave principale
   html+=`<div style="display:flex;gap:10px;margin-top:7px;flex-wrap:wrap;">`;
-  if(isEditMode){
-    html+=`<div style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--ink3);">${_dot(8,'target')}<span>Actuelle</span></div>`;
-    html+=`<div style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--ink3);"><div style="width:8px;height:8px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);flex-shrink:0;"></div><span>Nouvelle</span></div>`;
+  if(isEditMode&&batchPosSet.size>0){
+    html+=`<div style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--ink3);">${_dot(8,'target')}<span>En cave (${batchPosSet.size})</span></div>`;
+    html+=`<div style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--ink3);"><div style="width:8px;height:8px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);flex-shrink:0;"></div><span>Déplacement forcé</span></div>`;
+  } else if(isEditMode){
+    html+=`<div style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--ink3);"><div style="width:8px;height:8px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);flex-shrink:0;"></div><span>Nouvelle position</span></div>`;
   } else {
     html+=`<div style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--ink3);">${_dot(8,'target')}<span>Conseillé</span></div>`;
     html+=`<div style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--ink3);"><div style="width:8px;height:8px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);flex-shrink:0;"></div><span>Manuel</span></div>`;
@@ -2217,21 +2323,86 @@ function renderPlacementPreview(){
   html+=`<div style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--ink3);">${_dot(8,'empty')}<span>Libre</span></div>`;
   html+=`</div>`;
 
-  // ── Section supplémentaire (mode édition + delta quantité > 0) ────────
+  // ── Section supplémentaire (mode édition + delta > 0) ─────────────────
   if(isEditMode){
     const batchTotal=_editBatchIds.length+1;
-    const newQty=qty;
-    const delta=newQty-batchTotal;
+    const delta=qty-batchTotal;
     if(delta>0){
-      const extraCaves=db.caves.filter(c=>!c.vrac);
+      // Auto-sélection cave extra : même lieu → cave avec place → Vrac
+      const origCave=getCave(_editOriginalCaveId);
+      const origLieu=origCave?.lieu||null;
+      function caveFreePlaces(c){
+        if(c.vrac)return 999;
+        const occupied=new Set(winesOfCave(c.id).map(w=>w.position));
+        let free=0;
+        c.clayettes.forEach((cl,ci)=>{for(let r=0;r<cl.rows;r++)for(let cc=0;cc<cl.cols;cc++)if(!occupied.has(mkPos(ci,r,cc)))free++;});
+        return free;
+      }
+      // Vérifier si la cave actuelle extra a assez de place
       if(!_editExtraCaveId||!getCave(_editExtraCaveId))_editExtraCaveId=activeCave;
-      html+=`<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);">
-        <div style="font-size:10px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">Cave pour les ${delta} bouteille${delta>1?'s':''} supplémentaire${delta>1?'s':''}</div>
-        <select onchange="_editExtraCaveId=+this.value;" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;background:var(--white);color:var(--ink);font-family:var(--font);">
-          ${extraCaves.map(c=>`<option value="${c.id}" ${c.id===_editExtraCaveId?'selected':''}>${c.name}${c.lieu?' · '+c.lieu:''}${c.type?' ('+c.type+')':''}</option>`).join('')}
-        </select>
-        <div style="font-size:11px;color:var(--ink4);margin-top:5px;">Les positions seront choisies automatiquement par l'algorithme</div>
-      </div>`;
+      let extraCaveCandidate=getCave(_editExtraCaveId);
+      let autoMsg=null;
+      if(!extraCaveCandidate?.vrac&&caveFreePlaces(extraCaveCandidate)<delta){
+        // Chercher une cave du même lieu avec de la place
+        const sameLieu=origLieu?db.caves.filter(c=>!c.vrac&&c.lieu===origLieu&&c.id!==_editOriginalCaveId&&caveFreePlaces(c)>=delta):[];
+        if(sameLieu.length){
+          _editExtraCaveId=sameLieu[0].id;
+          extraCaveCandidate=sameLieu[0];
+          autoMsg=`ℹ️ Pas assez de place — reporté dans <b>${sameLieu[0].name}</b> (même lieu)`;
+        } else {
+          // Fallback Vrac
+          const vrac=db.caves.find(c=>c.vrac);
+          if(vrac){_editExtraCaveId=vrac.id;extraCaveCandidate=vrac;autoMsg=`ℹ️ Pas assez de place — rangement en <b>Cave Vrac</b>`;}
+        }
+      }
+
+      const allRealCaves=db.caves.filter(c=>!c.vrac);
+      const vracCave=db.caves.find(c=>c.vrac);
+      const caveOptions=[...allRealCaves,...(vracCave?[vracCave]:[])];
+
+      html+=`<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);">`;
+      html+=`<div style="font-size:11px;font-weight:700;color:var(--ink);margin-bottom:8px;">➕ ${delta} bouteille${delta>1?'s':''} supplémentaire${delta>1?'s':''}</div>`;
+      if(autoMsg)html+=`<div style="font-size:11px;color:#b45309;background:#FFF8E1;border-radius:7px;padding:7px 10px;margin-bottom:8px;">${autoMsg}</div>`;
+      html+=`<div style="font-size:10px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">Cave cible</div>`;
+      html+=`<select onchange="_editExtraCaveId=+this.value;_forcedExtraPositions=[];renderPlacementPreview();" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;background:var(--white);color:var(--ink);font-family:var(--font);margin-bottom:8px;">
+        ${caveOptions.map(c=>`<option value="${c.id}" ${c.id===_editExtraCaveId?'selected':''}>${c.vrac?'📦 ':''} ${c.name}${c.lieu?' · '+c.lieu:''}${c.type?' ('+c.type+')':''}</option>`).join('')}
+      </select>`;
+
+      // Grille de la cave extra si pas Vrac
+      if(extraCaveCandidate&&!extraCaveCandidate.vrac){
+        const extraWines=winesOfCave(extraCaveCandidate.id);
+        const extraSuggested=topPositions(extraCaveCandidate,{couleur,caveId:extraCaveCandidate.id},delta);
+        html+=`<div style="font-size:11px;color:var(--ink3);margin-bottom:6px;">
+          Clique pour forcer les positions · <b style="color:#2EA855;">${_forcedExtraPositions.length}</b>/${delta} forcée${delta>1?'s':''}
+          ${_forcedExtraPositions.length>0?`<button onclick="_forcedExtraPositions=[];renderPlacementPreview();" style="margin-left:6px;font-size:10px;background:var(--paper2);border:1px solid var(--border);border-radius:6px;padding:2px 7px;cursor:pointer;font-family:var(--font);">↺ Auto</button>`:''}
+        </div>`;
+        const maxColsE=extraCaveCandidate.clayettes.reduce((m,cl)=>Math.max(m,cl.cols),1);
+        const szE=Math.max(10,Math.min(20,Math.floor((availW-(maxColsE-1)*2)/maxColsE)));
+        const gapE=Math.max(2,Math.round(szE*.18));
+        html+=_renderCaveGrid(extraCaveCandidate,extraWines,{
+          batchPosSet:new Set(),
+          forcedPos:null,
+          extraForcedPositions:_forcedExtraPositions,
+          extraSuggested,
+          extraDelta:delta,
+          sz:szE,gap:gapE,
+          onClickFn:'setForcedExtraPos',
+          editMode:false
+        });
+        html+=`<div style="display:flex;gap:10px;margin-top:5px;flex-wrap:wrap;">`;
+        html+=`<div style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--ink3);"><div style="width:8px;height:8px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#50CC70,#1A8840);flex-shrink:0;"></div><span>Suggestion algo</span></div>`;
+        html+=`<div style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--ink3);"><div style="width:8px;height:8px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);flex-shrink:0;"></div><span>Forcée</span></div>`;
+        html+=`<div style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--ink3);">${_dot(8,'wine','rouge')}<span>Occupée</span></div>`;
+        html+=`</div>`;
+      }else if(extraCaveCandidate?.vrac){
+        const usedVrac=winesOfCave(extraCaveCandidate.id).length;
+        html+=`<div style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--paper2);border-radius:8px;">
+          <span style="font-size:18px;">📦</span>
+          <div><div style="font-size:12px;font-weight:600;color:var(--ink);">Cave Vrac — capacité illimitée</div>
+          <div style="font-size:11px;color:var(--ink2);">${usedVrac} bouteille${usedVrac!==1?'s':''} actuellement · ${delta} seront ajoutée${delta>1?'s':''} automatiquement</div></div>
+        </div>`;
+      }
+      html+=`</div>`;
     }
   }
 
@@ -2361,18 +2532,20 @@ function renderCaveWithHL(caveId,pos,hlClass){renderCavePage();}
 // WINE MANAGEMENT
 // ═══════════════════════════════════════════
 let editingWineId=null;
-let _editBatchIds=[];       // IDs des autres bouteilles du même lot lors d'une édition
-let _editOriginalPos=null;  // position d'origine du vin édité (pour afficher le cercle vert)
-let _editOriginalCaveId=null; // cave d'origine du vin édité
-let _editExtraCaveId=null;  // cave cible pour les bouteilles supplémentaires (delta > 0)
+let _editBatchIds=[];           // IDs des autres bouteilles du même lot lors d'une édition
+let _editOriginalPos=null;      // position d'origine du vin édité
+let _editOriginalCaveId=null;   // cave d'origine du vin édité
+let _editExtraCaveId=null;      // cave cible pour les bouteilles supplémentaires (delta > 0)
+let _forcedExtraPositions=[];   // positions forcées manuellement pour les bouteilles supplémentaires
 
 function editWine(id){
   const w=db.wines.find(x=>x.id===id);if(!w)return;
   editingWineId=id;
   _forcedPosition=null;
-  _editOriginalPos=w.position||null;     // position actuelle → cercle vert dans le schéma
-  _editOriginalCaveId=w.caveId;          // cave actuelle → préselection dropdown
-  _editExtraCaveId=null;                 // reset: les extras vont par défaut dans la même cave
+  _editOriginalPos=w.position||null;
+  _editOriginalCaveId=w.caveId;
+  _editExtraCaveId=null;
+  _forcedExtraPositions=[];
   // Calculer le lot (même nom + millésime + caveId) pour la gestion de quantité
   _editBatchIds=db.wines
     .filter(x=>x.id!==id&&x.nom===w.nom&&x.millesime===w.millesime&&x.caveId===w.caveId)
@@ -2394,7 +2567,9 @@ function editWine(id){
   set('add-region',w.region||'Bordeaux');
   set('add-format',w.format||'75cl');
   set('add-carafage',w.carafage||'');
-  set('add-qty',batchTotal); // affiche le total du lot, pas juste 1
+  set('add-qty',batchTotal);
+  const qtyEl=document.getElementById('add-qty');
+  if(qtyEl){qtyEl.min=batchTotal;qtyEl.title=`Quantité actuelle : ${batchTotal}. Pour retirer, utilisez "Retirer".`;}
   // Bio toggle
   const bioEl=document.getElementById('add-bio');
   if(bioEl){bioEl.checked=!!w.biologique;const t=document.getElementById('add-bio-track');const th=document.getElementById('add-bio-thumb');if(t)t.style.background=w.biologique?'var(--rouge)':'var(--border)';if(th)th.style.transform=w.biologique?'translateX(16px)':'translateX(0)';}
@@ -2424,6 +2599,8 @@ function resetAddForm(){
   _editOriginalPos=null;
   _editOriginalCaveId=null;
   _editExtraCaveId=null;
+  _forcedExtraPositions=[];
+  const qtyReset=document.getElementById('add-qty');if(qtyReset){qtyReset.min=1;qtyReset.title='';}
   // Champs texte + number
   ['add-nom','add-millesime','add-appellation','add-cepage','add-prix',
    'add-producteur','add-dateachat','add-lieuachat','add-score'].forEach(id=>{
@@ -2529,6 +2706,12 @@ function saveWine(){
     const newQty=Math.max(1,Math.min(100,parseInt(document.getElementById('add-qty')?.value)||1));
     const oldQty=allBatchIds.length;
     const delta=newQty-oldQty;
+    // ── Bloquer la réduction de quantité : utiliser "Retirer" ──
+    if(delta<0){
+      showToast('⚠️ Pour retirer des bouteilles, utilisez la fonction "Retirer" depuis la fiche ou l\'inventaire');
+      const qtyEl=document.getElementById('add-qty');if(qtyEl)qtyEl.value=oldQty;
+      return;
+    }
     // Cave cible pour les bouteilles supplémentaires
     const extraCaveId=_editExtraCaveId||activeCave;
     const extraCave=getCave(extraCaveId);
@@ -2538,8 +2721,11 @@ function saveWine(){
       const newPositions=[];
       for(let i=0;i<delta;i++){
         const wine={...baseWine,id:db.nWine++};
-        const pos=bestPosition(extraCave,wine)?.pos;
-        if(pos){wine.position=pos;newPositions.push(pos);}
+        // Utiliser la position forcée si dispo, sinon bestPosition
+        const forcedPos=_forcedExtraPositions[i];
+        const taken=db.wines.find(w=>w.caveId===extraCave.id&&w.position===forcedPos);
+        if(forcedPos&&!taken){wine.position=forcedPos;newPositions.push(forcedPos);}
+        else{const p=bestPosition(extraCave,wine)?.pos;if(p){wine.position=p;newPositions.push(p);}}
         db.wines.push(wine);
       }
       trackMouvement('e',delta);
@@ -2548,26 +2734,17 @@ function saveWine(){
         if(highlightTimer)clearTimeout(highlightTimer);
         highlightTimer=setTimeout(()=>{highlightPositions=[];renderCavePage();},5000);
       }
-    } else if(delta<0){
-      // Supprimer |delta| bouteilles du lot (les plus récentes en premier) — sans journal
-      const toRemove=_editBatchIds.slice(0,Math.abs(delta));
-      toRemove.forEach(rid=>{
-        const rw=db.wines.find(x=>x.id===rid);
-        if(rw){cascadeAfterRemoval(rw);db.wines=db.wines.filter(x=>x.id!==rid);}
-      });
-      trackMouvement('s',Math.abs(delta));
     }
     _editBatchIds=[];
     editingWineId=null;
     _forcedPosition=null;
     _editExtraCaveId=null;
+    _forcedExtraPositions=[];
     const btn=document.getElementById('add-submit-btn');if(btn)btn.textContent='🍾 Ajouter à la cave';
     dbSave();
     const offline=!currentUser||isDemo;
     if(delta>0){
       showToast(offline?`💾 ${nom} mis à jour + ${delta} bouteille${delta>1?'s':''} ajoutée${delta>1?'s':''} (hors ligne)`:`✅ ${nom} mis à jour + ${delta} bouteille${delta>1?'s':''} ajoutée${delta>1?'s':''}`);
-    } else if(delta<0){
-      showToast(offline?`💾 ${nom} mis à jour · ${Math.abs(delta)} bouteille${Math.abs(delta)>1?'s':''} retirée${Math.abs(delta)>1?'s':''} (hors ligne)`:`✅ ${nom} mis à jour · ${Math.abs(delta)} bouteille${Math.abs(delta)>1?'s':''} retirée${Math.abs(delta)>1?'s':''}`);
     } else {
       showToast(offline?`💾 ${nom} mis à jour (hors ligne)`:`✏️ ${nom} mis à jour`);
     }
@@ -3477,6 +3654,63 @@ function closeOv(id){document.getElementById(id).classList.remove('on');}
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2600);}
 
 // ═══════════════════════════════════════════
+// SAUVEGARDE / RESTAURATION JSON
+// ═══════════════════════════════════════════
+function exportBackupJSON(silent){
+  if(!db.caves.length&&!db.wines.length){
+    if(!silent)showToast('⚠️ Aucune donnée à sauvegarder');
+    return;
+  }
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const stamp=`${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const filename=`cavavin_backup_${stamp}.json`;
+  const payload={exportDate:now.toISOString(),caves:db.caves,wines:db.wines,journal:db.journal||[],nCave:db.nCave,nWine:db.nWine,statsAnnuelles:db.statsAnnuelles||{}};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=filename;a.click();
+  URL.revokeObjectURL(url);
+  localStorage.setItem('cavavin_last_backup',Date.now().toString());
+  if(!silent)showToast('✅ Sauvegarde téléchargée : '+filename);
+}
+
+function importBackupJSON(input){
+  const file=input.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const data=JSON.parse(e.target.result);
+      if(!data.caves||!Array.isArray(data.caves))throw new Error('Format invalide');
+      if(!confirm(`Restaurer ${data.caves.length} cave(s) et ${data.wines?.length||0} bouteille(s) depuis la sauvegarde du ${new Date(data.exportDate).toLocaleDateString('fr-FR')} ?\n\nCela écrasera les données actuelles.`))return;
+      db.caves=data.caves;
+      db.wines=data.wines||[];
+      db.journal=data.journal||[];
+      db.nCave=data.nCave||data.caves.length;
+      db.nWine=data.nWine||data.wines?.length||0;
+      db.statsAnnuelles=data.statsAnnuelles||{};
+      localStorage.setItem('cavedb',JSON.stringify(db));
+      // Pousser vers Aiven si connecté
+      if(_jwtToken&&currentUser&&!isDemo){
+        fetch(`${API_URL}/api/data`,{method:'POST',headers:authHeaders(),body:JSON.stringify({data:db})})
+          .then(r=>r.ok?showToast('✅ Données restaurées et synchronisées vers Aiven !'):showToast('✅ Données restaurées localement (sync Aiven en attente)'))
+          .catch(()=>showToast('✅ Données restaurées localement'));
+      }else{
+        showToast('✅ Données restaurées !');
+      }
+      renderPage();
+      if(typeof renderSettings==='function')renderSettings();
+    }catch(err){
+      showToast('❌ Fichier invalide : '+err.message);
+    }
+    input.value='';
+  };
+  reader.readAsText(file);
+}
+
+
+// ═══════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════
 dbLoad();
@@ -3709,18 +3943,23 @@ async function runInitHeuristique(){
 }
 
 // Statut de maturité (4 états) — basé sur apogeeDebut/apogeeFin stockés par l'IA
+// Orange = apogée dans moins de 6 mois | Jaune = encore plus de 6 mois à attendre
 function maturiteStatus(w){
   if(!w.apogeeDebut||!w.apogeeFin)return null;
-  const y=new Date().getFullYear();
-  if(y>w.apogeeFin)return'depasse';
-  if(y>=w.apogeeDebut)return'apogee';
-  if(y>=w.apogeeDebut-3)return'proche';
-  return'jeune';
+  const now=new Date();
+  const apogeeStart=new Date(w.apogeeDebut,0,1);   // 1er janvier de apogeeDebut
+  const apogeeEnd=new Date(w.apogeeFin,11,31);      // 31 décembre de apogeeFin
+  // Fenêtre de 6 mois glissante à partir d'aujourd'hui
+  const in6Months=new Date(now.getFullYear(),now.getMonth()+6,now.getDate());
+  if(now>apogeeEnd)return'depasse';
+  if(now>=apogeeStart)return'apogee';
+  if(apogeeStart<=in6Months)return'proche'; // orange : apogée dans ≤ 6 mois
+  return'jeune';                             // jaune  : apogée dans > 6 mois
 }
 const MATURITE_CFG={
   apogee:{color:'#43A047',label:'À boire',title:'À son apogée — à boire maintenant ✓'},
-  proche:{color:'#FF9800',label:'Bientôt',title:'Bientôt à son apogée — encore quelques mois'},
-  jeune: {color:'#FDD835',label:'Attendre',title:'Encore trop jeune — laisser maturer'},
+  proche:{color:'#FF9800',label:'Bientôt',title:'Apogée dans moins de 6 mois — préparez-vous !'},
+  jeune: {color:'#FDD835',label:'Attendre',title:'Encore trop jeune — laisser maturer plus de 6 mois'},
   depasse:{color:'#E53935',label:'Dépassé',title:'Apogée dépassée — à boire sans attendre'},
 };
 function maturiteDot(w){
@@ -3872,7 +4111,7 @@ function showDetail(id,fromChat=false){
   const yToEnd=w.apogeeFin?(w.apogeeFin-year):null;
   const mCtxMsg=(!w.apogeeDebut||!w.apogeeFin)?''
     :st==='jeune'?`Attendre encore ${yToStart} an${yToStart>1?'s':''} · prêt en ${w.apogeeDebut}`
-    :st==='proche'?`Bientôt à maturité · accessible dès ${w.apogeeDebut}`
+    :st==='proche'?`Apogée dans moins de 6 mois · accessible dès ${w.apogeeDebut}`
     :st==='apogee'?(yToEnd>0?`À son apogée · encore ${yToEnd} an${yToEnd>1?'s':''} (jusqu'en ${w.apogeeFin})`:`À son apogée · dernière année, à boire !`)
     :`Apogée dépassée depuis ${-yToEnd} an${-yToEnd>1?'s':''} · à boire sans attendre`;
   const pp=w.position?parsePos(w.position):null;
@@ -3975,7 +4214,7 @@ let _aiApogeeFin=null;
 let _forcedPosition=null;  // position forcée manuellement dans le schéma de la cave
 
 // Redimensionne une image base64 à maxSide px max (pour alléger les requêtes IA)
-function resizeImage(b64,maxSide=1024){
+function resizeImage(b64,maxSide=600){
   return new Promise(resolve=>{
     const img=new Image();
     img.onload=()=>{
@@ -3987,7 +4226,7 @@ function resizeImage(b64,maxSide=1024){
       const c=document.createElement('canvas');
       c.width=w;c.height=h;
       c.getContext('2d').drawImage(img,0,0,w,h);
-      resolve(c.toDataURL('image/jpeg',0.82));
+      resolve(c.toDataURL('image/jpeg',0.50));
     };
     img.onerror=()=>resolve(b64);
     img.src=b64;
@@ -3997,7 +4236,7 @@ function resizeImage(b64,maxSide=1024){
 function onBottlePhoto(e){
   const f=e.target.files[0];if(!f)return;
   const r=new FileReader();r.onload=async ev=>{
-    bottleB64=await resizeImage(ev.target.result,1024);
+    bottleB64=await resizeImage(ev.target.result,600);
     document.getElementById('pz-btl-prev').innerHTML=`<img src="${bottleB64}" style="max-width:100%;border-radius:10px;pointer-events:none;">`;
     document.getElementById('ai-fill-btn').style.display='block';
   };r.readAsDataURL(f);
@@ -4162,11 +4401,11 @@ function renderSettings(){
         </span>
         <span style="display:flex;align-items:center;gap:5px;background:var(--paper2);border-radius:6px;padding:5px 7px;">
           <span style="width:9px;height:9px;border-radius:50%;background:#FDD835;flex-shrink:0;display:inline-block;box-shadow:0 0 0 1px rgba(0,0,0,.1);"></span>
-          <span><b style="color:var(--ink2);">Jaune</b> — À maturer</span>
+          <span><b style="color:var(--ink2);">Jaune</b> — Attendre (&gt; 6 mois)</span>
         </span>
         <span style="display:flex;align-items:center;gap:5px;background:var(--paper2);border-radius:6px;padding:5px 7px;">
           <span style="width:9px;height:9px;border-radius:50%;background:#FF9800;flex-shrink:0;display:inline-block;"></span>
-          <span><b style="color:var(--ink2);">Orange</b> — Proche</span>
+          <span><b style="color:var(--ink2);">Orange</b> — Apogée &lt; 6 mois</span>
         </span>
         <span style="display:flex;align-items:center;gap:5px;background:var(--paper2);border-radius:6px;padding:5px 7px;">
           <span style="width:9px;height:9px;border-radius:50%;background:#E53935;flex-shrink:0;display:inline-block;"></span>
@@ -4179,7 +4418,25 @@ function renderSettings(){
         <button id="btn-maturite-update" class="btn btn-secondary" onclick="runMaturiteUpdate()" style="width:100%;font-size:13px;">🤖 Recalculer via IA (tous les vins)</button>
       </div>
     </div>`;
-  list.innerHTML=z+maturiteSection+cloudSection;
+  const backupSection=`
+    <div style="background:var(--white);border-radius:12px;padding:16px;box-shadow:var(--shadow-s);margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">💾 Sauvegarde des données</div>
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.6;">Exportez vos caves et bouteilles dans un fichier JSON. Vous pouvez le réimporter à tout moment pour restaurer vos données.</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button class="btn btn-primary" onclick="exportBackupJSON()" style="width:100%;font-size:13px;">⬇️ Télécharger la sauvegarde (.json)</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('import-backup-input').click()" style="width:100%;font-size:13px;">⬆️ Restaurer depuis une sauvegarde</button>
+        <input type="file" id="import-backup-input" accept=".json" style="display:none;" onchange="importBackupJSON(this)">
+      </div>
+      <div id="backup-info" style="font-size:11px;color:var(--ink3);margin-top:10px;text-align:center;"></div>
+    </div>`;
+
+  list.innerHTML=z+maturiteSection+backupSection+cloudSection;
+  const lastBackup=localStorage.getItem('cavavin_last_backup');
+  const infoEl=document.getElementById('backup-info');
+  if(infoEl&&lastBackup){
+    const d=new Date(parseInt(lastBackup));
+    infoEl.textContent='Dernière sauvegarde auto : '+d.toLocaleDateString('fr-FR')+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  }
 }
 
 function saveBackendUrl(){
