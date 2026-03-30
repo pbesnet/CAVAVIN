@@ -3234,13 +3234,27 @@ function renderJournal(){
   if(!db.journal.length){list.innerHTML=`<div class="empty"><div class="empty-icon">📔</div><div>Aucune dégustation enregistrée</div></div>`;return;}
   list.innerHTML=[...db.journal].reverse().map(j=>{
     const stillInCave=db.wines.some(w=>w.id===j.wineId);
+    const wFull=db.wines.find(w=>w.id===j.wineId);
     const rmBtn=stillInCave
       ?`<button onclick="retireBottleFromJournal(${j.id},${j.wineId})" style="margin-top:8px;width:100%;background:transparent;border:1px dashed #dc2626;border-radius:8px;padding:6px 10px;font-size:12px;color:#dc2626;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;"><span>🍾</span>Retirer de la cave</button>`
       :`<div style="margin-top:8px;font-size:11px;color:var(--ink3);display:flex;align-items:center;gap:4px;"><span>✅</span>Bouteille retirée de la cave</div>`;
+    // Infos vin enrichies (depuis l'objet vin si encore en cave, sinon depuis wineName sauvegardé)
+    const couleur=wFull?.couleur;
+    const couleurDot=couleur?`<span class="wc-dot ${couleur}" style="width:8px;height:8px;flex-shrink:0;"></span>`:'';
+    const nomLine=wFull?wFull.nom:j.wineName;
+    const millesime=wFull?.millesime||'';
+    const producteur=wFull?.producteur||'';
+    const matDot=wFull?maturiteDot(wFull):'';
     return `<div class="jc">
       <div class="jh">
-        <div class="jw">${j.wineName}</div>
-        <div style="display:flex;align-items:center;gap:8px;">
+        <div style="display:flex;align-items:center;gap:5px;min-width:0;flex:1;margin-right:8px;">
+          ${couleurDot}
+          <div style="min-width:0;">
+            <div class="jw" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nomLine}${millesime?` <span style="font-weight:400;color:var(--ink2);">${millesime}</span>`:''} ${matDot}</div>
+            ${producteur?`<div style="font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${producteur}</div>`:''}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
           <div class="jd">${j.date}</div>
           <button onclick="openJournalModal(db.journal.find(x=>x.id===${j.id}))" style="background:var(--paper2);border:1px solid var(--border);border-radius:7px;padding:3px 8px;font-size:13px;cursor:pointer;color:var(--ink2);">✏️</button>
         </div>
@@ -5216,7 +5230,7 @@ function renderSupercave(){
   const vracCount=vracCave?winesOfCave(vracCave.id).length:0;
   const realCaves=db.caves.filter(c=>!c.vrac);
   const totalCaves=realCaves.length;
-  const totalSlots=realCaves.reduce((s,c)=>s+c.clayettes.reduce((a,cl)=>a+cl.rows*cl.cols,0),0);
+  const totalSlots=realCaves.reduce((s,c)=>s+caveTotal(c),0);
   const nonVracWines=wines.filter(w=>!vracCave||w.caveId!==vracCave.id).length;
   const remplissage=totalSlots?Math.round(nonVracWines/totalSlots*100):0;
   const valeur=wines.reduce((s,w)=>s+(w.prix||0),0);
@@ -5281,7 +5295,7 @@ function renderSupercave(){
   const caveRows=db.caves.map(c=>{
     const cWines=wines.filter(w=>w.caveId===c.id);
     if(c.vrac)return{cave:c,n:cWines.length,slots:null,fill:null};
-    const slots=c.clayettes.reduce((a,cl)=>a+cl.rows*cl.cols,0);
+    const slots=caveTotal(c);
     const fill=slots?Math.round(cWines.length/slots*100):0;
     return{cave:c,n:cWines.length,slots,fill};
   });
