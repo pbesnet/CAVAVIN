@@ -4111,7 +4111,7 @@ function initMaturiteHeuristique(){
   let updated=0;
   const nowYear=new Date().getFullYear();
   db.wines.forEach(w=>{
-    if(w.apogeeDebut||w.apogeeFin)return; // données déjà présentes → on ne touche pas
+    if(w.apogeeDebut&&w.apogeeFin)return; // données complètes déjà présentes → on ne touche pas
     // Estimation à partir du millésime (ou de l'année d'ajout si millésime inconnu)
     const millesime=w.millesime||(w.addedAt?parseInt(w.addedAt.slice(0,4)):null)||nowYear-2;
     const est=computeApogeeHeuristic(w.couleur||'rouge',w.region||'',millesime);
@@ -4628,7 +4628,7 @@ function renderSettings(){
       <button class="btn btn-secondary" onclick="saveApiKey()" style="width:100%;font-size:13px;">Sauvegarder la clé</button>
     </div>`;
 
-  const nSansMaturite=db.wines.filter(w=>!w.apogeeDebut&&!w.apogeeFin).length;
+  const nSansMaturite=db.wines.filter(w=>!w.apogeeDebut||!w.apogeeFin).length;
   const maturiteSection=`
     <div style="background:var(--white);border-radius:12px;padding:16px;box-shadow:var(--shadow-s);margin-bottom:12px;">
       <div style="font-size:12px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🍇 Maturité des vins</div>
@@ -5222,10 +5222,26 @@ function renderSupercave(){
   const valeur=wines.reduce((s,w)=>s+(w.prix||0),0);
 
   // ── 2b. Entrées / Sorties 12 mois ──
+  // Entrées : dérivées de addedAt (source de vérité fiable même après refresh/sync)
+  // Sorties : depuis statsAnnuelles (seule trace des bouteilles supprimées)
   const monthLabels=['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
   const curYearStr=year.toString();
-  const yearStats=(db.statsAnnuelles||{})[curYearStr]||{};
-  const chartData=monthLabels.map((_,i)=>{const m=(i+1).toString().padStart(2,'0');const s=yearStats[m]||{e:0,s:0};return{e:s.e||0,s:s.s||0};});
+  const yearStatsS=(db.statsAnnuelles||{})[curYearStr]||{};
+  // Dériver les entrées depuis les addedAt des bouteilles actuelles
+  const entreesByMonth={};
+  wines.forEach(w=>{
+    if(!w.addedAt)return;
+    const d=new Date(w.addedAt);
+    if(d.getFullYear()!==year)return;
+    const mo=(d.getMonth()+1).toString().padStart(2,'0');
+    entreesByMonth[mo]=(entreesByMonth[mo]||0)+1;
+  });
+  const chartData=monthLabels.map((_,i)=>{
+    const m=(i+1).toString().padStart(2,'0');
+    const e=entreesByMonth[m]||0;
+    const s=(yearStatsS[m]||{}).s||0;
+    return{e,s};
+  });
   const chartMax=Math.max(1,...chartData.map(d=>Math.max(d.e,d.s)));
   const chartHasData=chartData.some(d=>d.e>0||d.s>0);
 
@@ -5293,9 +5309,9 @@ function renderSupercave(){
     </div>
   </div>
 
-  <!-- VIGNETTES CAVES (max 5) -->
+  <!-- VIGNETTES CAVES (toutes, ordre décroissant par remplissage) -->
   ${(()=>{
-    const display=caveRows.slice(0,5);
+    const display=[...caveRows].sort((a,b)=>(b.fill??-1)-(a.fill??-1));
     if(!display.length)return'';
     return`<div style="margin-bottom:20px;">
       <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.9px;margin-bottom:8px;">Mes caves</div>
