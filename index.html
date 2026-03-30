@@ -3385,13 +3385,15 @@ function renderJournal(){
     const rmBtn=stillInCave
       ?`<button onclick="retireBottleFromJournal(${j.id},${j.wineId})" style="margin-top:8px;width:100%;background:transparent;border:1px dashed #dc2626;border-radius:8px;padding:6px 10px;font-size:12px;color:#dc2626;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;"><span>🍾</span>Retirer de la cave</button>`
       :`<div style="margin-top:8px;font-size:11px;color:var(--ink3);display:flex;align-items:center;gap:4px;"><span>✅</span>Bouteille retirée de la cave</div>`;
-    // Infos vin enrichies (depuis l'objet vin si encore en cave, sinon depuis wineName sauvegardé)
-    const couleur=wFull?.couleur;
+    // Infos vin enrichies — priorité wFull (vin encore en cave), fallback sur champs sauvegardés dans l'entrée journal
+    const couleur=wFull?.couleur||j.couleur||null;
     const couleurDot=couleur?`<span class="wc-dot ${couleur}" style="width:8px;height:8px;flex-shrink:0;"></span>`:'';
-    const nomLine=wFull?wFull.nom:j.wineName;
-    const millesime=wFull?.millesime||'';
-    const producteur=wFull?.producteur||'';
-    const matDot=wFull?maturiteDot(wFull):'';
+    const nomLine=wFull?wFull.nom:(j.wineName||'');
+    const millesime=wFull?.millesime||j.millesime||'';
+    const producteur=wFull?.producteur||j.producteur||'';
+    // maturity dot : si vin sorti, reconstruire objet minimal avec les champs sauvegardés
+    const wForMat=wFull||(j.apogeeDebut&&j.apogeeFin?{apogeeDebut:j.apogeeDebut,apogeeFin:j.apogeeFin}:null);
+    const matDot=wForMat?maturiteDot(wForMat):'';
     return `<div class="jc">
       <div class="jh">
         <div style="display:flex;align-items:center;gap:5px;min-width:0;flex:1;margin-right:8px;">
@@ -3477,7 +3479,10 @@ function saveJournal(){
     renderJournal();showToast('✏️ Dégustation mise à jour !');
   }else{
     if(!w.nom||w.nom==='?'){showToast('⚠️ Aucun vin sélectionné');return;}
-    db.journal.push({id:Date.now(),wineId,wineName:`${w.nom}${w.millesime?' '+w.millesime:''}`,date,note,cmt});
+    db.journal.push({id:Date.now(),wineId,wineName:`${w.nom}${w.millesime?' '+w.millesime:''}`,
+      couleur:w.couleur||null,producteur:w.producteur||'',millesime:w.millesime||null,
+      apogeeDebut:w.apogeeDebut||null,apogeeFin:w.apogeeFin||null,
+      date,note,cmt});
     if(document.getElementById('j-rm').checked){const _w=db.wines.find(x=>x.id===wineId);if(_w)cascadeAfterRemoval(_w);db.wines=db.wines.filter(x=>x.id!==wineId);trackMouvement('s');}
     dbSave();closeOv('ov-journal');resetJRmToggle();renderJournal();renderCavePage();showToast('📔 Dégustation enregistrée !');
   }
@@ -5608,17 +5613,45 @@ function renderSupercave(){
     </div>
   </div>
 
-  <!-- VINS SANS MATURITÉ (maintenance) -->
+  <!-- MAINTENANCE : vins sans millésime -->
+  ${(()=>{
+    const sansMillesime=wines.filter(w=>!w.millesime).sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
+    if(!sansMillesime.length)return'';
+    return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;border-left:3px solid #9C27B0;">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;">
+        <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;">🗓️ Millésimes manquants</div>
+        <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#9C27B022;color:#6A1B9A;">${sansMillesime.length} à compléter</div>
+      </div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">Clique sur un vin pour ouvrir sa fiche et saisir l'année — la liste se réduit automatiquement</div>
+      <div style="display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto;">
+        ${sansMillesime.map(w=>{
+          const cp=couleurPastille(w.couleur);
+          const cave=db.caves.find(c=>c.id===w.caveId);
+          return`<div onclick="showDetail(${w.id})" style="display:flex;align-items:center;gap:9px;padding:8px 10px;background:var(--paper2);border-radius:9px;cursor:pointer;transition:background .15s;"
+                 onmouseover="this.style.background='var(--paper3)'" onmouseout="this.style.background='var(--paper2)'">
+            ${cp}
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${w.nom}</div>
+              <div style="font-size:10px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${[w.region,w.appellation,cave?.name].filter(Boolean).join(' · ')||'—'}</div>
+            </div>
+            <div style="font-size:10px;font-weight:700;color:#9C27B0;flex-shrink:0;background:#9C27B011;padding:2px 7px;border-radius:6px;">année ?</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  })()}
+
+  <!-- MAINTENANCE : vins sans période d'apogée -->
   ${(()=>{
     const sansMat=wines.filter(w=>!w.apogeeDebut||!w.apogeeFin);
     if(!sansMat.length)return'';
     return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;border-left:3px solid #FF9800;">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;">
-        <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;">🔧 Vins à compléter</div>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;">
+        <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;">🔧 Apogée manquante</div>
         <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#FF980022;color:#E65100;">${sansMat.length} sans apogée</div>
       </div>
-      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">Clique pour ouvrir et renseigner la période d'apogée manuellement</div>
-      <div style="display:flex;flex-direction:column;gap:5px;max-height:220px;overflow-y:auto;">
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">Clique pour ouvrir la fiche et renseigner les dates manuellement — ou utilise l'init IA dans les paramètres</div>
+      <div style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;">
         ${sansMat.map(w=>{
           const cp=couleurPastille(w.couleur);
           return`<div onclick="showDetail(${w.id})" style="display:flex;align-items:center;gap:9px;padding:8px 10px;background:var(--paper2);border-radius:9px;cursor:pointer;transition:background .15s;"
@@ -5632,7 +5665,7 @@ function renderSupercave(){
           </div>`;
         }).join('')}
       </div>
-      <button onclick="nav('settings')" style="margin-top:10px;width:100%;background:transparent;border:1px solid #FF9800;border-radius:8px;padding:7px 10px;font-size:12px;color:#E65100;cursor:pointer;">⚡ Lancer l'initialisation automatique →</button>
+      <button onclick="nav('settings')" style="margin-top:10px;width:100%;background:transparent;border:1px solid #FF9800;border-radius:8px;padding:7px 10px;font-size:12px;color:#E65100;cursor:pointer;">⚡ Lancer l'init automatique dans les paramètres →</button>
     </div>`;
   })()}
 
