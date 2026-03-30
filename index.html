@@ -261,6 +261,8 @@ img{display:block;}
   animation:slideUp .3s ease-out;
 }
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+@keyframes fadeInScale{from{opacity:0;transform:scale(.85);}to{opacity:1;transform:scale(1);}}
+@keyframes fadeOutScale{from{opacity:1;transform:scale(1);}to{opacity:0;transform:scale(.85);}}
 @keyframes slideUp{from{transform:translateY(40px);opacity:0;}to{transform:translateY(0);opacity:1;}}
 
 .empty{text-align:center;padding:48px 24px;color:var(--ink2);}
@@ -608,13 +610,12 @@ div[onclick], span[onclick]{
     <!-- Navigation -->
     <div id="sidebar-nav">
       <div id="sidebar-nav-label">Navigation</div>
-      <div class="sn on" onclick="nav('cave')"><span>🍷</span>Cave</div>
-      <div class="sn" onclick="nav('chat')"><span>✨</span>Sommelier IA</div>
+      <div class="sn on" onclick="nav('supercave')"><span>🏠</span>Accueil</div>
+      <div class="sn" onclick="nav('cave')"><span>🍷</span>Cave</div>
       <div class="sn" onclick="nav('inv')"><span>📋</span>Inventaire</div>
       <div class="sn" onclick="nav('add')"><span>➕</span>Ajouter</div>
+      <div class="sn" onclick="nav('chat')"><span>✨</span>Sommelier IA</div>
       <div class="sn" onclick="nav('journal')"><span>📔</span>Journal dégustation</div>
-      <div class="sn" onclick="nav('supercave')"><span>🌍</span>Supercave</div>
-      <div class="sn" id="nav-promo" onclick="nav('promo')"><span>🏷️</span>Promo Vins<span id="promo-badge" style="display:none;margin-left:auto;width:8px;height:8px;border-radius:50%;background:#E53935;flex-shrink:0;box-shadow:0 0 0 2px var(--white);"></span></div>
       <div class="sn" onclick="nav('transfer')"><span>🔄</span>Transfert cave</div>
       <div id="nav-settings" class="sn" onclick="nav('settings')"><span>⚙️</span>Paramètres</div>
     </div>
@@ -708,11 +709,26 @@ div[onclick], span[onclick]{
               <select id="add-region" class="form-select" style="font-size:13px;padding:7px 8px;">
                 <option>Bordeaux</option>
                 <option>Bourgogne</option>
+                <option>Champagne</option>
                 <option>Rhône</option>
                 <option>Loire</option>
                 <option>Alsace</option>
-                <option>Champagne</option>
                 <option>Provence</option>
+                <option>Languedoc-Roussillon</option>
+                <option>Sud-Ouest</option>
+                <option>Beaujolais</option>
+                <option>Jura</option>
+                <option>Savoie</option>
+                <option>Corse</option>
+                <option>Bergerac</option>
+                <option>Cahors</option>
+                <option>Madiran</option>
+                <option>Gaillac</option>
+                <option>Jurançon</option>
+                <option>Banyuls / Roussillon</option>
+                <option>Chablis</option>
+                <option>Étranger</option>
+                <option>Autre</option>
               </select>
             </div>
 
@@ -821,11 +837,11 @@ div[onclick], span[onclick]{
           </div>
           <!-- Filtres couleur -->
           <div id="inv-ftabs" style="display:flex;gap:6px;margin-bottom:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;">
-            <button class="btn btn-primary ft on" onclick="setIF('tous',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">Tous</button>
-            <button class="btn btn-secondary ft" onclick="setIF('rouge',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🔴 Rouge</button>
-            <button class="btn btn-secondary ft" onclick="setIF('blanc',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🟡 Blanc</button>
-            <button class="btn btn-secondary ft" onclick="setIF('rose',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🩷 Rosé</button>
-            <button class="btn btn-secondary ft" onclick="setIF('champagne',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🥂 Champ.</button>
+            <button class="btn btn-primary ft on" data-f="tous" onclick="setIF('tous',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">Tous</button>
+            <button class="btn btn-secondary ft" data-f="rouge" onclick="setIF('rouge',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🔴 Rouge</button>
+            <button class="btn btn-secondary ft" data-f="blanc" onclick="setIF('blanc',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🟡 Blanc</button>
+            <button class="btn btn-secondary ft" data-f="rose" onclick="setIF('rose',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🩷 Rosé</button>
+            <button class="btn btn-secondary ft" data-f="champagne" onclick="setIF('champagne',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🥂 Champ.</button>
           </div>
           <!-- Filtres caves (générés dynamiquement) -->
           <div id="inv-cave-tabs" style="display:flex;gap:6px;margin-bottom:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px;"></div>
@@ -1658,16 +1674,29 @@ function computeApogeeHeuristic(couleur,region,millesime){
   if(!millesime)return{apogeeDebut:null,apogeeFin:null};
   const m=millesime;const r=(region||'').toLowerCase();
   let d,f;
-  if(couleur==='champagne'){d=m+4;f=m+15;}
-  else if(couleur==='rose'){d=m+1;f=m+3;}
-  else if(couleur==='blanc'){
-    if(r.includes('bourgogne')||r.includes('alsace')){d=m+3;f=m+12;}
+  if(couleur==='champagne'){
+    if(r.includes('champagne'))d=m+5,f=m+20;
+    else d=m+4,f=m+12;
+  }else if(couleur==='rose'){
+    d=m+1;f=m+4;
+  }else if(couleur==='blanc'){
+    if(r.includes('bourgogne'))         {d=m+4;f=m+15;}
+    else if(r.includes('alsace'))       {d=m+3;f=m+12;}
+    else if(r.includes('loire'))        {d=m+3;f=m+10;}
+    else if(r.includes('bordeaux'))     {d=m+4;f=m+14;}
+    else if(r.includes('rhône')||r.includes('rhone')){d=m+3;f=m+10;}
     else{d=m+2;f=m+7;}
   }else{// rouge
-    if(r.includes('bordeaux')){d=m+6;f=m+22;}
-    else if(r.includes('bourgogne')){d=m+5;f=m+16;}
-    else if(r.includes('rh')){d=m+4;f=m+14;}
-    else{d=m+3;f=m+10;}
+    if(r.includes('bordeaux'))          {d=m+7;f=m+25;}
+    else if(r.includes('bourgogne'))    {d=m+6;f=m+18;}
+    else if(r.includes('rhône')||r.includes('rhone')){d=m+5;f=m+16;}
+    else if(r.includes('languedoc')||r.includes('roussillon')){d=m+3;f=m+10;}
+    else if(r.includes('beaujolais'))   {d=m+1;f=m+5;}
+    else if(r.includes('loire'))        {d=m+3;f=m+12;}
+    else if(r.includes('provence'))     {d=m+2;f=m+7;}
+    else if(r.includes('toscan')||r.includes('italie')){d=m+5;f=m+18;}
+    else if(r.includes('rioja')||r.includes('espagne')){d=m+4;f=m+14;}
+    else{d=m+3;f=m+12;}
   }
   return{apogeeDebut:d,apogeeFin:f};
 }
@@ -1786,7 +1815,7 @@ function trackMouvement(type,count=1){
 }
 
 let activeCave=null;
-let currentPage='cave';
+let currentPage='supercave';
 let highlightPositions=[];
 let highlightTimer=null;
 
@@ -1800,9 +1829,13 @@ function mostFilledCaveId(){
 }
 
 function renderPage(){checkPromoBadge();
-  if(!activeCave)activeCave=mostFilledCaveId();
+  if(!activeCave){
+    // Restaurer la dernière cave mémorisée, sinon prendre la plus remplie
+    try{const saved=parseInt(localStorage.getItem('cavavin_lastCave'));if(saved&&getCave(saved))activeCave=saved;}catch(_){}
+    if(!activeCave)activeCave=mostFilledCaveId();
+  }
   updateTopbarSel();updateSidebarCaves();
-  nav('cave');
+  nav('supercave');
 }
 
 let _pendingSync=false; // true si des changements n'ont pas encore été envoyés
@@ -2031,7 +2064,7 @@ function caveTotal(c){return c.clayettes.reduce((s,cl)=>s+cl.rows*cl.cols*(cl.de
 // ALGORITHM: BEST POSITION
 // ═══════════════════════════════════════════
 const COLOR_ZONE_ORDER=['champagne','blanc','rose','rouge'];
-const REGION_ORDER=['Bordeaux','Bourgogne','Rhône','Loire','Alsace','Champagne','Provence','Languedoc','Corse','Autre'];
+const REGION_ORDER=['Bordeaux','Bourgogne','Champagne','Rhône','Loire','Alsace','Provence','Languedoc-Roussillon','Sud-Ouest','Beaujolais','Jura','Savoie','Corse','Bergerac','Cahors','Madiran','Gaillac','Jurançon','Banyuls / Roussillon','Chablis','Étranger','Autre'];
 
 function buildZones(cave){
   const nc=cave.clayettes.length;
@@ -2812,9 +2845,10 @@ function saveWine(){
       }
       // NB : les autres bouteilles du lot NE sont PAS déplacées
     }
-    // Capturer la position finale de la bouteille éditée pour le highlight
-    const editedFinalPos=db.wines.find(x=>x.id===editId)?.position||null;
-    const editedFinalCave=db.wines.find(x=>x.id===editId)?.caveId||activeCave;
+    // Capturer la position finale de la bouteille éditée pour le highlight (depth-aware)
+    const _ef=db.wines.find(x=>x.id===editId);
+    const editedFinalPos=_ef?.position?(_ef.position+'|d'+(_ef.depth||0)):null;
+    const editedFinalCave=_ef?.caveId||activeCave;
     // 3. Nouvelles bouteilles supplémentaires (qty > 1)
     const newQty=Math.max(1,Math.min(100,parseInt(document.getElementById('add-qty')?.value)||1));
     const delta=newQty-1; // on édite 1 bouteille, les nouvelles = qty-1
@@ -2841,7 +2875,7 @@ function saveWine(){
           const taken=db.wines.find(w=>w.caveId===cid&&w.position===fpos&&(w.depth||0)===fdepth);
           if(!taken){wine.position=fpos;wine.depth=fdepth;}
           else{const bp2=bestPosition(tc,wine);if(bp2?.pos){wine.position=bp2.pos;wine.depth=bp2.depth||0;}}
-          if(wine.position)newPositions.push(wine.position);
+          if(wine.position)newPositions.push(wine.position+'|d'+(wine.depth||0));
           db.wines.push(wine);
         }
       }
@@ -2853,7 +2887,7 @@ function saveWine(){
           for(let i=0;i<unforcedCount;i++){
             const wine={...baseWine,caveId:extraCave.id,id:db.nWine++};
             const bp2=bestPosition(extraCave,wine);
-            if(bp2?.pos){wine.position=bp2.pos;wine.depth=bp2.depth||0;newPositions.push(bp2.pos);}
+            if(bp2?.pos){wine.position=bp2.pos;wine.depth=bp2.depth||0;newPositions.push(bp2.pos+'|d'+(bp2.depth||0));}
             db.wines.push(wine);
           }
         }
@@ -2896,6 +2930,9 @@ function saveWine(){
   const newPositions=[];
   const newWineIds=[];
 
+  // toMain/toVrac/vrac déclarés ici pour rester accessibles après le if/else (toast + nav)
+  let toMain=0,toVrac=0,vrac=null;
+
   if(_forcedPlacements.length>0){
     // ── Placements multi-cave forcés manuellement ─────────────────────────
     // 1. Bouteilles avec position forcée (regroupées par cave)
@@ -2905,8 +2942,8 @@ function saveWine(){
       const wine={...fields,caveId:fp.caveId,notes:null,addedAt:new Date().toISOString(),id:db.nWine++};
       // Vérifier que la position est encore libre (depth-aware)
       const isFree=!db.wines.find(w=>w.caveId===fp.caveId&&w.position===fp.pos&&(w.depth||0)===(fp.depth||0));
-      if(isFree&&fp.pos){wine.position=fp.pos;wine.depth=fp.depth||0;newPositions.push(fp.pos);}
-      else{const bpf=bestPosition(fc,wine);if(bpf?.pos){wine.position=bpf.pos;if(bpf.depth!==undefined)wine.depth=bpf.depth;newPositions.push(bpf.pos);}}
+      if(isFree&&fp.pos){wine.position=fp.pos;wine.depth=fp.depth||0;newPositions.push(fp.pos+'|d'+(fp.depth||0));}
+      else{const bpf=bestPosition(fc,wine);if(bpf?.pos){wine.position=bpf.pos;if(bpf.depth!==undefined)wine.depth=bpf.depth;newPositions.push(bpf.pos+'|d'+(bpf.depth||0));}}
       db.wines.push(wine);newWineIds.push(wine.id);
       placed.add(wine.id);
     }
@@ -2915,14 +2952,14 @@ function saveWine(){
     if(unforcedCount>0){
       const baseWine={...fields,caveId:cave.id,notes:null,addedAt:new Date().toISOString()};
       const freeSlotsMain=cave.vrac?unforcedCount:Math.max(0,caveTotal(cave)-winesOfCave(cave.id).length);
-      const toMain=Math.min(unforcedCount,freeSlotsMain);
-      const toVrac=unforcedCount-toMain;
+      toMain=Math.min(unforcedCount,freeSlotsMain);
+      toVrac=unforcedCount-toMain;
       if(toVrac>0){ensureVracCave();}
-      const vrac=toVrac>0?db.caves.find(c=>c.vrac):null;
+      vrac=toVrac>0?db.caves.find(c=>c.vrac):null;
       for(let i=0;i<toMain;i++){
         const wine={...baseWine,id:db.nWine++};
-        if(cave.vrac){const vp=vracNextPos(cave);if(vp?.pos){wine.position=vp.pos;newPositions.push(vp.pos);}}
-        else{const bp=bestPosition(cave,wine);if(bp?.pos){wine.position=bp.pos;if(bp.depth!==undefined)wine.depth=bp.depth;newPositions.push(bp.pos);}}
+        if(cave.vrac){const vp=vracNextPos(cave);if(vp?.pos){wine.position=vp.pos;newPositions.push(vp.pos+'|d0');}}
+        else{const bp=bestPosition(cave,wine);if(bp?.pos){wine.position=bp.pos;if(bp.depth!==undefined)wine.depth=bp.depth;newPositions.push(bp.pos+'|d'+(bp.depth||0));}}
         db.wines.push(wine);newWineIds.push(wine.id);
       }
       if(toVrac>0&&vrac){
@@ -2938,15 +2975,15 @@ function saveWine(){
     // ── Placement automatique (aucun forçage) ──────────────────────────────
     const baseWine={...fields, caveId:cave.id, notes:null, addedAt:new Date().toISOString()};
     const freeSlots=cave.vrac?qty:Math.max(0,caveTotal(cave)-winesOfCave(cave.id).length);
-    const toMain=Math.min(qty,freeSlots);
-    const toVrac=qty-toMain;
+    toMain=Math.min(qty,freeSlots);
+    toVrac=qty-toMain;
     const vracCave=toVrac>0?db.caves.find(c=>c.vrac):null;
     if(toVrac>0&&!vracCave){ensureVracCave();}
-    const vrac=toVrac>0?db.caves.find(c=>c.vrac):null;
+    vrac=toVrac>0?db.caves.find(c=>c.vrac):null;
     for(let i=0;i<toMain;i++){
       const wine={...baseWine,id:db.nWine++};
-      if(cave.vrac){const vp=vracNextPos(cave);if(vp?.pos){wine.position=vp.pos;newPositions.push(vp.pos);}}
-      else{const bp=bestPosition(cave,wine);if(bp?.pos){wine.position=bp.pos;if(bp.depth!==undefined)wine.depth=bp.depth;newPositions.push(bp.pos);}}
+      if(cave.vrac){const vp=vracNextPos(cave);if(vp?.pos){wine.position=vp.pos;newPositions.push(vp.pos+'|d0');}}
+      else{const bp=bestPosition(cave,wine);if(bp?.pos){wine.position=bp.pos;if(bp.depth!==undefined)wine.depth=bp.depth;newPositions.push(bp.pos+'|d'+(bp.depth||0));}}
       db.wines.push(wine);newWineIds.push(wine.id);
     }
     if(toVrac>0&&vrac){
@@ -3047,7 +3084,7 @@ async function getAccords(id){
   try{
     const wAge=w.millesime?new Date().getFullYear()-w.millesime:null;
     const st=maturiteStatus(w);
-    const matCtx=st?`Fenêtre d'apogée calculée : ${w.apogeeDebut}–${w.apogeeFin}. Statut actuel : ${{apogee:'À son apogée ✓',proche:'Bientôt à son apogée',jeune:'Encore trop jeune',depasse:'Apogée dépassée'}[st]}.`:'';
+    const matCtx=st?`Fenêtre d'apogée calculée : ${w.apogeeDebut}–${w.apogeeFin}. Statut actuel : ${{maturation:'Encore en maturation — trop jeune',debut_apogee:'Début d\'apogée — commence à s\'ouvrir',apogee:'À son apogée parfaite ✓',declin:'Apogée dépassée — à boire sans attendre'}[st]}.`:'';
     const txt=await apiCall([{role:'user',content:`Sommelier expert. Vin : ${w.nom}, ${w.couleur}, millésime ${w.millesime||'?'} (âge : ${wAge!==null?wAge+'ans':'inconnu'}), ${w.region||'?'}, ${w.appellation||'?'}, ${w.cepage||'?'}. ${matCtx}
 Retourne UNIQUEMENT un JSON valide (sans markdown) :
 {"temperature":"","decantation":"","maturite":"","conseil_degustation":"","profil":["","",""],"accords":[{"plat":"","detail":"","emoji":""}]}
@@ -3357,7 +3394,7 @@ async function sendChat(){
   inp.value='';inp.style.height='';
 
   const nowYear=new Date().getFullYear();
-  const _matLabel={apogee:'🟢 apogée',proche:'🟠 bientôt',jeune:'🟡 attendre',depasse:'🔴 dépassé'};
+  const _matLabel={maturation:'🟢 maturation',debut_apogee:'🟡 début apogée',apogee:'🟠 apogée',declin:'🔴 déclin'};
   const cavesCtx=db.caves.map(c=>{
     const ws=winesOfCave(c.id);
     return `Cave "${c.name}" (${ws.length} vins):\n${ws.slice(0,50).map(w=>{
@@ -3992,6 +4029,7 @@ let invFilter='tous';
 let invCaveFilter=null;    // null = toutes les caves
 let invRegionFilter=null;  // null = toutes les régions
 let invMaturiteFilter=null;// null = toutes les maturités
+let _invNavFilters=false;  // true quand on arrive sur inv depuis une autre page avec filtres pré-réglés
 
 function setIF(f,el){
   invFilter=f;invRegionFilter=null;invMaturiteFilter=null;
@@ -4031,7 +4069,7 @@ async function estimateMaturiteAI(wineIds){
     const batch=wines.slice(i,i+batchSize);
     const ctx=batch.map(w=>`id=${w.id}|"${(w.nom||'').replace(/"/g,"'")}"|millesime:${w.millesime||'?'}|${w.couleur||''}|region:"${w.region||''}"|appellation:"${w.appellation||''}"|producteur:"${(w.producteur||'').replace(/"/g,"'")}"`).join('\n');
     try{
-      const r=await apiCall([{role:'user',content:`Tu es expert en vins. Pour chaque vin, estime la fenêtre d'apogée optimale (apogeeDebut / apogeeFin) selon l'appellation, le millésime, la couleur et la notoriété du producteur. Réponds UNIQUEMENT en JSON array valide, sans texte avant ni après :\n${ctx}\nFormat attendu : [{"id":X,"apogeeDebut":YYYY,"apogeeFin":YYYY},...]\nSi millésime inconnu, estime à partir d'une hypothèse raisonnable.`}],700);
+      const r=await apiCall([{role:'user',content:`Tu es un grand sommelier et expert en viticulture mondiale. Pour chaque vin listé ci-dessous, détermine avec précision la fenêtre d'apogée : apogeeDebut (première année où le vin atteint son plein potentiel) et apogeeFin (dernière année avant déclin notable). Base-toi sur : le cépage et son potentiel de garde connu, l'appellation et son terroir (grand cru, premier cru, village…), la région viticole et son style (Bordeaux, Bourgogne, Rhône, Loire, Toscane, Rioja…), le millésime et sa qualité reconnue (grands millésimes vs millésimes difficiles), le producteur et son style (élevage long/court, extraction…), la couleur (rouge > blanc > rosé > champagne en général), et toute donnée accessible sur ce vin spécifique. Donne des dates précises — évite les fourchettes trop larges. Réponds UNIQUEMENT en JSON array valide, sans texte avant ni après :\n${ctx}\nFormat attendu : [{"id":X,"apogeeDebut":YYYY,"apogeeFin":YYYY},...]\nSi le millésime est inconnu, estime à partir d'une hypothèse raisonnable (millésime moyen récent).`}],700);
       const arr=JSON.parse(r.replace(/```json|```/g,'').trim());
       arr.forEach(({id,apogeeDebut,apogeeFin})=>{
         const w=db.wines.find(x=>x.id===id);
@@ -4105,25 +4143,26 @@ async function runInitHeuristique(){
   if(currentPage==='settings')renderSettings();
 }
 
-// Statut de maturité (4 états) — basé sur apogeeDebut/apogeeFin stockés par l'IA
-// Orange = apogée dans moins de 6 mois | Jaune = encore plus de 6 mois à attendre
+// Statut de maturité (4 phases) — basé sur apogeeDebut/apogeeFin stockés par l'IA
+// Phase 1 maturation  : avant apogeeDebut                             → vert
+// Phase 2 debut_apogee: apogeeDebut → apogeeDebut + 40% de la fenêtre → jaune
+// Phase 3 apogee      : 40% → 100% de la fenêtre                     → orange
+// Phase 4 declin      : après apogeeFin                               → rouge
 function maturiteStatus(w){
   if(!w.apogeeDebut||!w.apogeeFin)return null;
-  const now=new Date();
-  const apogeeStart=new Date(w.apogeeDebut,0,1);   // 1er janvier de apogeeDebut
-  const apogeeEnd=new Date(w.apogeeFin,11,31);      // 31 décembre de apogeeFin
-  // Fenêtre de 6 mois glissante à partir d'aujourd'hui
-  const in6Months=new Date(now.getFullYear(),now.getMonth()+6,now.getDate());
-  if(now>apogeeEnd)return'depasse';
-  if(now>=apogeeStart)return'apogee';
-  if(apogeeStart<=in6Months)return'proche'; // orange : apogée dans ≤ 6 mois
-  return'jeune';                             // jaune  : apogée dans > 6 mois
+  const now=new Date().getFullYear();
+  const d=w.apogeeDebut,f=w.apogeeFin;
+  if(now>f)return'declin';
+  const mid=d+Math.floor((f-d)*0.4); // pivot 40% : fin de "début apogée"
+  if(now>=mid)return'apogee';         // apogée parfaite
+  if(now>=d)return'debut_apogee';     // début apogée
+  return'maturation';                 // en maturation
 }
 const MATURITE_CFG={
-  apogee:{color:'#43A047',label:'À boire',title:'À son apogée — à boire maintenant ✓'},
-  proche:{color:'#FF9800',label:'Bientôt',title:'Apogée dans moins de 6 mois — préparez-vous !'},
-  jeune: {color:'#FDD835',label:'Attendre',title:'Encore trop jeune — laisser maturer plus de 6 mois'},
-  depasse:{color:'#E53935',label:'Dépassé',title:'Apogée dépassée — à boire sans attendre'},
+  maturation: {color:'#4CAF50',label:'En maturation', title:'Vin encore jeune — laisser vieillir jusqu\'en '},
+  debut_apogee:{color:'#FDD835',label:'Début apogée', title:'Entrée dans la fenêtre d\'apogée — commence à s\'ouvrir'},
+  apogee:      {color:'#FF9800',label:'Apogée parfaite',title:'À son apogée optimale — à boire maintenant ✓'},
+  declin:      {color:'#E53935',label:'Déclin',         title:'Apogée dépassée — à boire sans attendre'},
 };
 function maturiteDot(w){
   const st=maturiteStatus(w);if(!st)return'';
@@ -4143,7 +4182,43 @@ function couleurPastille(couleur){
   return`<span title="${c.title}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:${c.bg};color:#fff;font-size:8px;font-weight:800;flex-shrink:0;letter-spacing:0;">${c.label}</span>`;
 }
 
+function _showInvFilterOverlay(){
+  // Retirer un éventuel overlay précédent
+  document.getElementById('inv-filter-overlay')?.remove();
+  const chips=[];
+  if(invCaveFilter!==null){const c=getCave(invCaveFilter);if(c)chips.push('📦 '+c.name);}
+  const cLabels={rouge:'🍷 Rouge',blanc:'🥂 Blanc',rose:'🌸 Rosé',champagne:'✨ Champagne'};
+  if(invFilter!=='tous')chips.push(cLabels[invFilter]||invFilter);
+  if(invRegionFilter)chips.push('🗺️ '+invRegionFilter);
+  const mLabels={maturation:'🟢 Maturation',debut_apogee:'🟡 Début apogée',apogee:'🟠 Apogée',declin:'🔴 Déclin'};
+  if(invMaturiteFilter)chips.push(mLabels[invMaturiteFilter]||invMaturiteFilter);
+  if(!chips.length)return;
+  const ov=document.createElement('div');
+  ov.id='inv-filter-overlay';
+  ov.style.cssText='position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:8800;pointer-events:none;';
+  ov.innerHTML=`<div style="background:rgba(20,10,10,.92);color:#fff;border-radius:18px;padding:18px 22px;box-shadow:0 8px 40px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:10px;align-items:center;animation:fadeInScale .22s ease-out;max-width:300px;">
+    <div style="font-size:10px;font-weight:700;opacity:.55;text-transform:uppercase;letter-spacing:.8px;">Filtres actifs</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;">
+      ${chips.map(ch=>`<span style="background:rgba(255,255,255,.15);border-radius:99px;padding:5px 12px;font-size:13px;font-weight:600;">${ch}</span>`).join('')}
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  setTimeout(()=>{
+    if(!ov.parentNode)return;
+    ov.firstElementChild.style.animation='fadeOutScale .3s ease-in forwards';
+    setTimeout(()=>ov.remove(),300);
+  },2000);
+}
+
 function renderInv(){
+  // Si on vient d'une autre page avec filtres pré-réglés, afficher l'overlay central
+  if(_invNavFilters){_invNavFilters=false;setTimeout(_showInvFilterOverlay,80);}
+  // Synchroniser l'état visuel des boutons couleurs (barre statique)
+  document.querySelectorAll('#inv-ftabs button[data-f]').forEach(btn=>{
+    const active=btn.dataset.f===invFilter;
+    btn.classList.toggle('btn-primary',active);btn.classList.toggle('on',active);
+    btn.classList.toggle('btn-secondary',!active);
+  });
   renderInvCaveTabs();
   // Tabs régions dynamiques
   const regBar=document.getElementById('inv-region-tabs');
@@ -4166,9 +4241,9 @@ function renderInv(){
   // Filtre maturité dynamique
   const matBar=document.getElementById('inv-maturite-tabs');
   if(matBar){
-    const MAT_ORDER=['apogee','proche','depasse','jeune'];
-    const MAT_LABEL={apogee:'🟢 À boire',proche:'🟠 Bientôt',depasse:'🔴 Dépassé',jeune:'🟡 Attendre'};
-    const MAT_COLOR={apogee:'#43A047',proche:'#FF9800',depasse:'#E53935',jeune:'#c8a800'};
+    const MAT_ORDER=['maturation','debut_apogee','apogee','declin'];
+    const MAT_LABEL={maturation:'🟢 Maturation',debut_apogee:'🟡 Début apogée',apogee:'🟠 Apogée',declin:'🔴 Déclin'};
+    const MAT_COLOR={maturation:'#4CAF50',debut_apogee:'#FDD835',apogee:'#FF9800',declin:'#E53935'};
     // Compter les statuts sur les vins pré-filtrés (cave + couleur + région, sans maturité)
     const preWines=db.wines.filter(w=>{
       if(invCaveFilter!==null&&w.caveId!==invCaveFilter)return false;
@@ -4273,10 +4348,10 @@ function showDetail(id,fromChat=false){
   const yToStart=w.apogeeDebut?(w.apogeeDebut-year):null;
   const yToEnd=w.apogeeFin?(w.apogeeFin-year):null;
   const mCtxMsg=(!w.apogeeDebut||!w.apogeeFin)?''
-    :st==='jeune'?`Attendre encore ${yToStart} an${yToStart>1?'s':''} · prêt en ${w.apogeeDebut}`
-    :st==='proche'?`Apogée dans moins de 6 mois · accessible dès ${w.apogeeDebut}`
-    :st==='apogee'?(yToEnd>0?`À son apogée · encore ${yToEnd} an${yToEnd>1?'s':''} (jusqu'en ${w.apogeeFin})`:`À son apogée · dernière année, à boire !`)
-    :`Apogée dépassée depuis ${-yToEnd} an${-yToEnd>1?'s':''} · à boire sans attendre`;
+    :st==='maturation'?`En maturation · encore ${yToStart} an${yToStart>1?'s':''} avant l'apogée (à partir de ${w.apogeeDebut})`
+    :st==='debut_apogee'?(()=>{const mid=w.apogeeDebut+Math.floor((w.apogeeFin-w.apogeeDebut)*0.4);const yToMid=mid-new Date().getFullYear();return`Début d'apogée · commence à s'ouvrir${yToMid>0?` · apogée parfaite dans ${yToMid} an${yToMid>1?'s':''}`:''}`})()
+    :st==='apogee'?(yToEnd>0?`Apogée parfaite · encore ${yToEnd} an${yToEnd>1?'s':''} (jusqu'en ${w.apogeeFin})`:`Dernière année d'apogée · à boire !`)
+    :`Déclin · apogée dépassée depuis ${-yToEnd} an${-yToEnd>1?'s':''} · à boire sans attendre`;
   const pp=w.position?parsePos(w.position):null;
   const fromInv=currentPage==='inv'||fromChat;
   document.getElementById('detail-content').innerHTML=`
@@ -4313,7 +4388,7 @@ function showDetail(id,fromChat=false){
       </div>
       ${mCtxMsg?`<div style="font-size:12px;color:var(--ink2);margin-bottom:8px;">${mCtxMsg}</div>`:''}
       <div style="height:6px;background:var(--paper3);border-radius:99px;overflow:hidden;margin-bottom:4px;">
-        <div style="height:100%;width:${pctA}%;background:linear-gradient(90deg,#3ABB3A,#F0A030,#D04020);border-radius:99px;"></div>
+        <div style="height:100%;width:${pctA}%;background:linear-gradient(90deg,#4CAF50 0%,#FDD835 40%,#FF9800 70%,#E53935 100%);border-radius:99px;"></div>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink4);margin-bottom:${w.maturiteHeuristique?'3':'0'}px;">
         <span>${w.apogeeDebut}</span>
@@ -4444,7 +4519,7 @@ RÈGLES :
 
     // ── Afficher l'indicateur de maturité dans le formulaire ──
     const mSt=maturiteStatus({apogeeDebut:_aiApogeeDebut,apogeeFin:_aiApogeeFin});
-    const mLabel={apogee:'🟢 Mature — à boire',proche:'🟠 Bientôt à l\'apogée',jeune:'🟡 À laisser vieillir',depasse:'🔴 Apogée dépassée'};
+    const mLabel={maturation:'🟢 En maturation — attendre',debut_apogee:'🟡 Début d\'apogée — s\'ouvre',apogee:'🟠 Apogée parfaite — à boire',declin:'🔴 Déclin — à boire vite'};
     const apogeeInfo=_aiApogeeDebut&&_aiApogeeFin?` · Apogée ${_aiApogeeDebut}–${_aiApogeeFin}`:'';
     const maturiteChip=mSt
       ?`<span style="font-size:11px;font-weight:700;">${mLabel[mSt]}${apogeeInfo}</span>`
@@ -4560,20 +4635,20 @@ function renderSettings(){
       <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.6;">L'IA calcule la fenêtre d'apogée de chaque bouteille (début · fin) et met à jour les pastilles couleur dans l'inventaire.</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;margin-bottom:14px;">
         <span style="display:flex;align-items:center;gap:5px;background:var(--paper2);border-radius:6px;padding:5px 7px;">
-          <span style="width:9px;height:9px;border-radius:50%;background:#43A047;flex-shrink:0;display:inline-block;"></span>
-          <span><b style="color:var(--ink2);">Vert</b> — Mature ✓</span>
+          <span style="width:9px;height:9px;border-radius:50%;background:#4CAF50;flex-shrink:0;display:inline-block;"></span>
+          <span><b style="color:var(--ink2);">Vert</b> — En maturation</span>
         </span>
         <span style="display:flex;align-items:center;gap:5px;background:var(--paper2);border-radius:6px;padding:5px 7px;">
           <span style="width:9px;height:9px;border-radius:50%;background:#FDD835;flex-shrink:0;display:inline-block;box-shadow:0 0 0 1px rgba(0,0,0,.1);"></span>
-          <span><b style="color:var(--ink2);">Jaune</b> — Attendre (&gt; 6 mois)</span>
+          <span><b style="color:var(--ink2);">Jaune</b> — Début apogée</span>
         </span>
         <span style="display:flex;align-items:center;gap:5px;background:var(--paper2);border-radius:6px;padding:5px 7px;">
           <span style="width:9px;height:9px;border-radius:50%;background:#FF9800;flex-shrink:0;display:inline-block;"></span>
-          <span><b style="color:var(--ink2);">Orange</b> — Apogée &lt; 6 mois</span>
+          <span><b style="color:var(--ink2);">Orange</b> — Apogée parfaite ✓</span>
         </span>
         <span style="display:flex;align-items:center;gap:5px;background:var(--paper2);border-radius:6px;padding:5px 7px;">
           <span style="width:9px;height:9px;border-radius:50%;background:#E53935;flex-shrink:0;display:inline-block;"></span>
-          <span><b style="color:var(--ink2);">Rouge</b> — Dépassé</span>
+          <span><b style="color:var(--ink2);">Rouge</b> — Déclin</span>
         </span>
       </div>
       ${nSansMaturite>0?`<div style="font-size:11px;color:var(--ink3);background:#FFF8E1;border-radius:8px;padding:8px 10px;margin-bottom:10px;">⚠️ <b>${nSansMaturite} bouteille${nSansMaturite>1?'s':''}</b> sans données de maturité — utilisez les boutons ci-dessous.</div>`:''}
@@ -4664,6 +4739,8 @@ function renderCavePage(){
     return;
   }
   if(!activeCave||!getCave(activeCave))activeCave=db.caves[0].id;
+  // Mémoriser la dernière cave consultée pour la restaurer au prochain login
+  try{localStorage.setItem('cavavin_lastCave',String(activeCave));}catch(_){}
   const cave=getCave(activeCave);
   const wines=winesOfCave(cave.id);
   const total=cave.vrac?null:caveTotal(cave);
@@ -4716,7 +4793,8 @@ function renderCavePage(){
         for(let c=0;c<displayCols;c++){
           const pos=`C${ci+1}-R${r+1}-${c+1}`;
           const w=clDepth===2?wines.find(x=>x.position===pos&&(x.depth||0)===dv):wines.find(x=>x.position===pos);
-          const isHL=highlightPositions.includes(pos);
+          // highlight depth-aware : "pos|dN" = rangée exacte ; "pos" seul = AV uniquement (rétro-compat)
+          const isHL=highlightPositions.some(h=>{if(h.includes('|d')){const[hp,hd]=h.split('|d');return hp===pos&&+hd===dv;}return h===pos&&dv===0;});
           if(w){
             const bg=_bgMap[w.couleur]||'#888';
             const hlStyle=isHL?'box-shadow:0 0 0 3px #00FF66,0 0 12px #00FF66;z-index:2;position:relative;':'';
@@ -4763,7 +4841,7 @@ function renderCavePage(){
     <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.9px;margin-bottom:7px;">Par couleur</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;">
       ${colorCards.map(({key,label,n,emoji})=>`
-      <div class="color-card" style="background:${colGrad[key]};" onclick="invCaveFilter=activeCave;invFilter='${key}';invRegionFilter=null;nav('inv')">
+      <div class="color-card" style="background:${colGrad[key]};" onclick="invCaveFilter=activeCave;invFilter='${key}';invRegionFilter=null;invMaturiteFilter=null;_invNavFilters=true;nav('inv')">
         <div style="display:flex;align-items:center;gap:7px;">
           <div style="font-size:15px;line-height:1;">${emoji}</div>
           <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:700;line-height:1;color:#fff;">${n}</div>
@@ -4777,7 +4855,7 @@ function renderCavePage(){
     <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.9px;margin-bottom:7px;">Par région</div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:14px;">
       ${regions.map(([r,n])=>`
-      <div style="background:var(--white);border-radius:10px;padding:7px 5px 6px;text-align:center;box-shadow:var(--shadow-s);cursor:pointer;" onclick="invCaveFilter=activeCave;invFilter='tous';invRegionFilter=this.dataset.r;nav('inv')" data-r="${r.replace(/"/g,'&quot;')}" >
+      <div style="background:var(--white);border-radius:10px;padding:7px 5px 6px;text-align:center;box-shadow:var(--shadow-s);cursor:pointer;" onclick="invCaveFilter=activeCave;invFilter='tous';invRegionFilter=this.dataset.r;invMaturiteFilter=null;_invNavFilters=true;nav('inv')" data-r="${r.replace(/"/g,'&quot;')}" >
         <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:700;color:var(--rouge);line-height:1;">${n}</div>
         <div style="font-size:8px;color:var(--ink2);margin-top:3px;line-height:1.2;word-break:break-word;font-weight:500;">${r.length>8?r.slice(0,7)+'…':r}</div>
       </div>`).join('')}
@@ -5087,7 +5165,7 @@ function nav(page){
   document.querySelectorAll('.sn').forEach(s=>s.classList.remove('on'));
   document.querySelector(`.sn[onclick*="'${page}'"]`)?.classList.add('on');
 
-  const titles={cave:'🍷 Ma Cave',inv:'📋 Inventaire',add:'➕ Ajouter un vin',accord:'🍽️ Accords mets & vins',journal:'📔 Journal de dégustation',chat:'🤖 Sommelier IA',supercave:'🌍 Supercave',promo:'🏷️ Promo Vins',transfer:'🔄 Transfert cave',settings:'⚙️ Configuration'};
+  const titles={cave:'🍷 Ma Cave',inv:'📋 Inventaire',add:'➕ Ajouter un vin',accord:'🍽️ Accords mets & vins',journal:'📔 Journal de dégustation',chat:'🤖 Sommelier IA',supercave:'🏠 Accueil',promo:'🏷️ Promo Vins',transfer:'🔄 Transfert cave',settings:'⚙️ Configuration'};
   document.getElementById('topbar-title').textContent=titles[page]||page;
   // Masquer le sélecteur de cave sur les pages où il n'est pas pertinent
   const hideSel=['accord','journal','chat','supercave','promo','transfer','settings','add','inv'];
@@ -5197,7 +5275,7 @@ function renderSupercave(){
 
   <!-- EN-TÊTE -->
   <div style="margin-bottom:20px;">
-    <div style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:700;color:var(--ink);line-height:1.1;">🌍 Supercave</div>
+    <div style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:700;color:var(--ink);line-height:1.1;">🏠 Accueil</div>
     <div style="font-size:13px;color:var(--ink2);margin-top:4px;">${totalCaves} cave${totalCaves>1?'s':''} · ${total} bouteille${total>1?'s':''}${vracCount>0?` <span style="opacity:.6;">(dont ${vracCount} en vrac)</span>`:''}</div>
   </div>
 
@@ -5215,6 +5293,34 @@ function renderSupercave(){
     </div>
   </div>
 
+  <!-- VIGNETTES CAVES (max 5) -->
+  ${(()=>{
+    const display=caveRows.slice(0,5);
+    if(!display.length)return'';
+    return`<div style="margin-bottom:20px;">
+      <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.9px;margin-bottom:8px;">Mes caves</div>
+      <div style="display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px;">
+        ${display.map(({cave:c,n,slots,fill})=>`
+        <div onclick="activeCave=${c.id};nav('cave')" style="flex-shrink:0;width:120px;background:var(--white);border-radius:14px;padding:12px 12px 10px;box-shadow:var(--shadow-s);cursor:pointer;border:1.5px solid transparent;transition:border-color .15s;"
+             onmouseover="this.style.borderColor='var(--rouge-m)'" onmouseout="this.style.borderColor='transparent'"
+             ontouchstart="this.style.borderColor='var(--rouge-m)'" ontouchend="this.style.borderColor='transparent'">
+          <div style="font-size:11px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:${c.lieu?'1':'6'}px;">${c.name}</div>
+          ${c.lieu?`<div style="font-size:9px;color:var(--ink4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px;">${c.lieu}</div>`:''}
+          <div style="display:flex;align-items:baseline;gap:3px;margin-bottom:5px;">
+            <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:700;color:var(--rouge);line-height:1;">${n}</span>
+            ${!c.vrac&&slots?`<span style="font-size:10px;color:var(--ink3);">/ ${slots}</span>`:''}
+          </div>
+          ${!c.vrac&&slots?`
+          <div style="height:5px;background:var(--paper3);border-radius:99px;overflow:hidden;margin-bottom:3px;">
+            <div style="height:100%;width:${fill}%;background:${fill>=90?'#E53935':fill>=70?'#FF9800':'#4CAF50'};border-radius:99px;"></div>
+          </div>
+          <div style="font-size:9px;color:${fill>=90?'#E53935':fill>=70?'#E65100':'var(--ink3)'};">${fill}% remplie</div>`
+          :`<div style="font-size:9px;color:var(--ink3);">vrac · illimité</div>`}
+        </div>`).join('')}
+      </div>
+    </div>`;
+  })()}
+
   <!-- ENTRÉES / SORTIES -->
   <div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;">
     <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;margin-bottom:2px;">Entrées · Sorties ${year}</div>
@@ -5229,8 +5335,14 @@ function renderSupercave(){
         const hS=d.s?Math.max(4,Math.round(d.s/chartMax*72)):0;
         return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;">
           <div style="display:flex;align-items:flex-end;gap:1px;height:72px;width:100%;">
-            <div style="flex:1;background:#4CAF50;border-radius:2px 2px 0 0;height:${hE}px;" title="${d.e} entrée${d.e>1?'s':''}"></div>
-            <div style="flex:1;background:#E53935;border-radius:2px 2px 0 0;height:${hS}px;" title="${d.s} sortie${d.s>1?'s':''}"></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;" title="${d.e} entrée${d.e>1?'s':''}">
+              ${d.e?`<div style="font-size:6px;font-weight:700;color:#2e7d32;line-height:1;margin-bottom:1px;">${d.e}</div>`:''}
+              <div style="width:100%;background:#4CAF50;border-radius:2px 2px 0 0;height:${hE}px;"></div>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;" title="${d.s} sortie${d.s>1?'s':''}">
+              ${d.s?`<div style="font-size:6px;font-weight:700;color:#c62828;line-height:1;margin-bottom:1px;">${d.s}</div>`:''}
+              <div style="width:100%;background:#E53935;border-radius:2px 2px 0 0;height:${hS}px;"></div>
+            </div>
           </div>
           <div style="font-size:7px;color:var(--ink3);margin-top:3px;text-align:center;">${monthLabels[i]}</div>
         </div>`;}).join('')}
@@ -5241,7 +5353,7 @@ function renderSupercave(){
   <div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;">
     <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;margin-bottom:12px;">Maturité des vins</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-      ${['apogee','proche','jeune','depasse'].map(st=>{
+      ${['maturation','debut_apogee','apogee','declin'].map(st=>{
         const cfg=MATURITE_CFG[st];
         const bucket=wines.filter(w=>maturiteStatus(w)===st);
         const n=bucket.length;
@@ -5556,9 +5668,10 @@ function setTransferForcedPos(key,pos){
 }
 
 // Force une position pour un vin dans le transfert manuel
-function setManualForcedPos(wineId,pos){
-  if(_manualForcedPos[wineId]===pos){delete _manualForcedPos[wineId];}
-  else{_manualForcedPos[wineId]=pos;}
+function setManualForcedPos(wineId,posKey){
+  // posKey peut être "pos" (depth=1) ou "pos|dN" (depth=2)
+  if(_manualForcedPos[wineId]===posKey){delete _manualForcedPos[wineId];}
+  else{_manualForcedPos[wineId]=posKey;}
   renderTransfer();
 }
 
@@ -5594,8 +5707,10 @@ function buildMiniCaveHtml(cave,srcPos,dstPos,virtualPositions=[],interactiveKey
         for(let c=0;c<displayCols;c++){
           const pos=mkPos(ci,r,c);
           const w=clDepthM===2?allW.find(x=>x.position===pos&&(x.depth||0)===dv):allW.find(x=>x.position===pos);
+          // Clé depth-aware pour clic et comparaison avec forcedPos
+          const posKey=clDepthM===2?`${pos}|d${dv}`:pos;
           let type='empty';
-          if(pos===forcedPos)       type='forced';
+          if(forcedPos&&(posKey===forcedPos||(forcedPos===pos&&dv===0))) type='forced';
           else if(srcSet.has(pos))  type='src';
           else if(pos===dstPos)     type='dst';
           else if(virtSet.has(pos)) type='virtual';
@@ -5603,9 +5718,9 @@ function buildMiniCaveHtml(cave,srcPos,dstPos,virtualPositions=[],interactiveKey
           const clickable=interactiveKey&&type==='empty';
           const isForcedSlot=interactiveKey&&type==='forced';
           if(isForcedSlot){
-            h+=`<div onclick="${interactiveFn}('${interactiveKey}','${pos}')" title="Cliquer pour annuler" style="cursor:pointer;display:inline-block;">${_dot(sz,'forced',null)}</div>`;
+            h+=`<div onclick="${interactiveFn}('${interactiveKey}','${posKey}')" title="Cliquer pour annuler" style="cursor:pointer;display:inline-block;">${_dot(sz,'forced',null)}</div>`;
           } else if(clickable){
-            h+=`<div onclick="${interactiveFn}('${interactiveKey}','${pos}')" title="Forcer ici" style="cursor:pointer;width:${sz}px;height:${sz}px;border-radius:3px;background:rgba(34,120,220,.12);border:1px dashed #4488FF;display:inline-block;flex-shrink:0;"></div>`;
+            h+=`<div onclick="${interactiveFn}('${interactiveKey}','${posKey}')" title="Forcer ici" style="cursor:pointer;width:${sz}px;height:${sz}px;border-radius:3px;background:rgba(34,120,220,.12);border:1px dashed #4488FF;display:inline-block;flex-shrink:0;"></div>`;
           } else {
             h+=_dot(sz,type,w?.couleur);
           }
@@ -5675,12 +5790,12 @@ function buildTransferRecoHtml(){
         <span style="display:flex;align-items:center;gap:4px;"><div style="width:9px;height:9px;border-radius:2px;background:rgba(34,120,220,.12);border:1px dashed #4488FF;display:inline-block;"></div> Libre</span>
       </div>
       ${(()=>{const fPos=_transferForcedPos['reco_'+idx]||null;const activePos=fPos||s.targetPos;return`<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;">
-        <div style="flex:1;">
+        <div style="flex:1;min-width:0;overflow:hidden;">
           <div style="font-size:10px;font-weight:600;color:var(--ink3);margin-bottom:4px;">SOURCE · ${srcCave.name}</div>
           ${buildMiniCaveHtml(srcCave,wine.position,null)}
         </div>
         <div style="font-size:20px;color:var(--ink3);align-self:center;padding-top:12px;">→</div>
-        <div style="flex:1;">
+        <div style="flex:1;min-width:0;overflow:hidden;">
           <div style="font-size:10px;font-weight:600;color:var(--ink3);margin-bottom:4px;">CIBLE · ${dstCave.name}</div>
           ${buildMiniCaveHtml(dstCave,null,fPos?null:s.targetPos,(transferRecoVirtuals[s.targetCaveId]||[]).filter(v=>v.position!==s.targetPos).map(v=>v.position),'reco_'+idx,fPos)}
         </div>
@@ -5868,16 +5983,21 @@ function executeManualTransfers(){
     const dstCave=getCave(transferManualDstId);
     if(!dstCave)return;
     // Position finale : forcée prioritaire sur algo
-    const isForced=!!_manualForcedPos[p.wineId];
-    const finalPos=_manualForcedPos[p.wineId]||p.pos;
+    const forcedKeyM=_manualForcedPos[p.wineId]||null;
+    const isForced=!!forcedKeyM;
+    // Décoder "pos|dN" si depth-aware, sinon plain pos
+    const [_fpos,_fd]=forcedKeyM?forcedKeyM.split('|d'):[null,null];
+    const finalPos=_fpos||p.pos;
+    const forcedDepthFromKey=_fd!==undefined?+_fd:null;
     // Déterminer la profondeur à la position finale
     const ppM=parsePos(finalPos);
     const dstClM=ppM?dstCave.clayettes[ppM.ci]:null;
     const maxDepthM=dstClM?.depth||1;
-    let finalDepth=isForced?0:( p.depth||0);
+    // Priorité : depth issu de la clé forcée > depth algo > 0
+    let finalDepth=isForced?(forcedDepthFromKey!==null?forcedDepthFromKey:0):(p.depth||0);
     if(maxDepthM===2){
-      // Si forcé manuellement, chercher première profondeur libre
-      if(isForced){
+      // Si forcé sans info depth, chercher première profondeur libre
+      if(isForced&&forcedDepthFromKey===null){
         const taken0=db.wines.find(w=>w.id!==p.wineId&&w.caveId===transferManualDstId&&w.position===finalPos&&(w.depth||0)===0);
         finalDepth=taken0?1:0;
       }
@@ -6009,9 +6129,10 @@ function buildTransferManualHtml(){
         const wine=db.wines.find(w=>w.id===wineId);
         if(!wine)continue;
         // Si position forcée, l'utiliser directement (ne pas consommer une place algo)
-        const forced=_manualForcedPos[wineId];
-        if(forced){
-          algoPlanned.push({wineId:wine.id,pos:forced,wine,forced:true});
+        const forcedKey=_manualForcedPos[wineId]; // "pos" ou "pos|dN"
+        if(forcedKey){
+          const[fpos,fd]=forcedKey.split('|d');
+          algoPlanned.push({wineId:wine.id,pos:fpos,depth:fd!==undefined?+fd:0,wine,forced:true,forcedKey});
         } else {
           const extra=virtMap[dstCave.id]||[];
           const bp=bestPosition(dstCave,{couleur:wine.couleur,region:wine.region,millesime:wine.millesime,caveId:dstCave.id},extra);
@@ -6046,11 +6167,12 @@ function buildTransferManualHtml(){
         algoPlanned.forEach(p=>{
           const wine=p.wine;
           const forced=p.forced;
-          const activePos=p.pos;
+          const activePos=p.pos; // pos pure (sans depth)
+          const forcedKey=p.forcedKey||activePos; // "pos|dN" pour le toggle
           const cp=couleurPastille(wine.couleur);
           // Mini-schéma : positions des autres vins planifiés comme virtuelles
           const otherPos=algoPlanned.filter(x=>x.wineId!==wine.id).map(x=>x.pos);
-          const fPos=forced?activePos:null;
+          const fPos=forced?forcedKey:null; // passe la clé depth-aware à buildMiniCaveHtml
           const dstPosForDot=forced?null:activePos;
           h+=`<div style="border:1px solid ${forced?'#4488FF':' var(--border)'};border-radius:12px;padding:10px 10px 8px;margin-top:8px;background:${forced?'rgba(34,85,204,.04)':'var(--white)'};">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -6059,15 +6181,15 @@ function buildTransferManualHtml(){
                 <div style="font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${wine.nom}${wine.millesime?' '+wine.millesime:''}</div>
                 <div style="font-size:10px;color:var(--ink3);">${wine.position||'—'} → <b style="color:${forced?'#2255CC':'var(--ink2)'};">${activePos}</b>${forced?' 📌':''}</div>
               </div>
-              ${forced?`<button onclick="setManualForcedPos(${wine.id},'${activePos}')" style="font-size:11px;color:#E53935;background:none;border:none;cursor:pointer;padding:2px 6px;flex-shrink:0;">✕</button>`:''}
+              ${forced?`<button onclick="setManualForcedPos(${wine.id},'${forcedKey}')" style="font-size:11px;color:#E53935;background:none;border:none;cursor:pointer;padding:2px 6px;flex-shrink:0;">✕</button>`:''}
             </div>
             <div style="display:flex;gap:8px;align-items:flex-start;">
-              <div style="flex:1;">
+              <div style="flex:1;min-width:0;overflow:hidden;">
                 <div style="font-size:9px;font-weight:600;color:var(--ink4);margin-bottom:3px;">SOURCE</div>
                 ${buildMiniCaveHtml(srcCave,wine.position,null)}
               </div>
               <div style="font-size:16px;color:var(--ink3);align-self:center;padding-top:10px;">→</div>
-              <div style="flex:1;">
+              <div style="flex:1;min-width:0;overflow:hidden;">
                 <div style="font-size:9px;font-weight:600;color:var(--ink4);margin-bottom:3px;">CIBLE</div>
                 ${buildMiniCaveHtml(dstCave,null,dstPosForDot,otherPos,wine.id,fPos,'setManualForcedPos')}
               </div>
