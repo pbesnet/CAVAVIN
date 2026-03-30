@@ -1323,7 +1323,22 @@ async function loadSharedData(){
       // Lire les données locales depuis localStorage (db peut être reset après logout)
       let localDb={};
       try{localDb=JSON.parse(localStorage.getItem('cavedb')||'{}');}catch(_){}
-      const localStats=localDb.statsAnnuelles||{};
+      // Double source pour les stats : cavedb ET clé dédiée (plus robuste)
+      let localStats=localDb.statsAnnuelles||{};
+      try{
+        const statsBak=localStorage.getItem('cavavin_stats_bak');
+        if(statsBak){
+          const bakStats=JSON.parse(statsBak);
+          // Fusionner les deux sources locales : prendre le max
+          for(const [yr,months] of Object.entries(bakStats)){
+            if(!localStats[yr])localStats[yr]={};
+            for(const [mo,data] of Object.entries(months)){
+              const cur=localStats[yr][mo]||{e:0,s:0};
+              localStats[yr][mo]={e:Math.max(cur.e||0,data.e||0),s:Math.max(cur.s||0,data.s||0)};
+            }
+          }
+        }
+      }catch(_){}
       const localJournal=localDb.journal||[];
       db = remoteData;
       if(!db.statsAnnuelles) db.statsAnnuelles = {};
@@ -1819,6 +1834,40 @@ function trackMouvement(type,count=1){
   if(!db.statsAnnuelles[yr])db.statsAnnuelles[yr]={};
   if(!db.statsAnnuelles[yr][mo])db.statsAnnuelles[yr][mo]={e:0,s:0};
   db.statsAnnuelles[yr][mo][type]=(db.statsAnnuelles[yr][mo][type]||0)+count;
+  // Sauvegarde dédiée des stats (clé séparée → survit à toute réinitialisation de cavedb)
+  try{localStorage.setItem('cavavin_stats_bak',JSON.stringify(db.statsAnnuelles));}catch(_){}
+}
+
+// Recalcule les entrées depuis les IDs de vins (wine.id = Date.now() au moment de l'ajout)
+function recalcStatsFromWines(){
+  if(!confirm('Recalculer les entrées depuis la date d\'ajout de chaque bouteille ?\nCela réinitialisera les compteurs d\'entrées (les sorties sont conservées).'))return;
+  const saved=db.statsAnnuelles||{};
+  // Conserver les sorties existantes
+  const newStats={};
+  for(const [yr,months] of Object.entries(saved)){
+    newStats[yr]={};
+    for(const [mo,data] of Object.entries(months)){
+      newStats[yr][mo]={e:0,s:data.s||0};
+    }
+  }
+  // Recalculer les entrées depuis les IDs
+  db.wines.forEach(w=>{
+    try{
+      const d=new Date(w.id); // id = Date.now() au moment de l'ajout
+      if(isNaN(d.getTime()))return;
+      const yr=d.getFullYear().toString();
+      const mo=(d.getMonth()+1).toString().padStart(2,'0');
+      if(!newStats[yr])newStats[yr]={};
+      if(!newStats[yr][mo])newStats[yr][mo]={e:0,s:0};
+      newStats[yr][mo].e++;
+    }catch(_){}
+  });
+  db.statsAnnuelles=newStats;
+  try{localStorage.setItem('cavavin_stats_bak',JSON.stringify(db.statsAnnuelles));}catch(_){}
+  dbSave();
+  if(currentPage==='supercave')renderSupercave();
+  if(currentPage==='settings')renderSettings();
+  showToast('✅ Entrées recalculées depuis les dates d\'ajout');
 }
 
 let activeCave=null;
@@ -1852,6 +1901,7 @@ let _pendingSync=false; // true si des changements n'ont pas encore été envoy�
 let _syncSnapshotWines={};
 let _syncSnapshotCaves={};
 let _syncSnapshotJournalIds=new Set(); // IDs des entrées journal déjà syncées
+let _syncSnapshotStats='{}'; // JSON des stats pour détecter les changements stats-only
 
 function _updateSyncSnapshot(){
   _syncSnapshotWines={};
@@ -1859,6 +1909,7 @@ function _updateSyncSnapshot(){
   _syncSnapshotCaves={};
   db.caves.forEach(c=>{_syncSnapshotCaves[String(c.id)]=JSON.stringify(c);});
   _syncSnapshotJournalIds=new Set((db.journal||[]).map(j=>String(j.id)));
+  _syncSnapshotStats=JSON.stringify(db.statsAnnuelles||{});
 }
 
 function _computeDelta(){
@@ -1889,7 +1940,9 @@ function _computeDelta(){
   (db.journal||[]).forEach(j=>{
     if(!_syncSnapshotJournalIds.has(String(j.id)))newJournalEntries.push(j);
   });
-  return{changedWines,deletedWineIds,changedCaves,deletedCaveIds,newJournalEntries};
+  // Stats modifiées depuis le dernier snapshot (pour détecter changements stats-only)
+  const statsChanged=JSON.stringify(db.statsAnnuelles||{})!==_syncSnapshotStats;
+  return{changedWines,deletedWineIds,changedCaves,deletedCaveIds,newJournalEntries,statsChanged};
 }
 
 function dbSave(){
@@ -1911,7 +1964,7 @@ async function _doCloudSync(retrying=false){
   try{
     const _t0=performance.now();
     const delta=_computeDelta();
-    const hasChanges=delta.changedWines.length||delta.deletedWineIds.length||delta.changedCaves.length||delta.deletedCaveIds.length||delta.newJournalEntries.length;
+    const hasChanges=delta.changedWines.length||delta.deletedWineIds.length||delta.changedCaves.length||delta.deletedCaveIds.length||delta.newJournalEntries.length||delta.statsChanged;
     let r;
     if(hasChanges){
       // PATCH incrémental : envoie uniquement ce qui a changé
@@ -4749,6 +4802,7 @@ function renderSettings(){
         <button id="btn-millesime-ia" class="btn btn-secondary" onclick="runInitMillesimeIA()" style="width:100%;font-size:13px;">🔍 Compléter les millésimes via IA</button>
         <button id="btn-maturite-heuristique" class="btn btn-secondary" onclick="runInitHeuristique()" style="width:100%;font-size:13px;">⚡ Init période apogée (heuristique)</button>
         <button id="btn-maturite-update" class="btn btn-secondary" onclick="runMaturiteUpdate()" style="width:100%;font-size:13px;">🤖 Recalculer apogée via IA (tous les vins)</button>
+        <button class="btn btn-secondary" onclick="recalcStatsFromWines()" style="width:100%;font-size:13px;margin-top:4px;border-top:1px solid var(--border);padding-top:11px;">📊 Recalculer les entrées depuis les dates d'ajout</button>
       </div>
     </div>`;
   const backupSection=`
@@ -5521,25 +5575,51 @@ function renderSupercave(){
       </div>`).join('')}
   </div>`:''}
 
-  <!-- TOP 30 DÉCLIN -->
+  <!-- TOP 10 APOGÉE → DÉCLIN IMMINANT (≤12 mois) -->
   ${(()=>{
+    const nowY=new Date().getFullYear();
+    const urgents=wines.filter(w=>maturiteStatus(w)==='apogee'&&w.apogeeFin&&w.apogeeFin<=nowY+1)
+      .sort((a,b)=>(a.apogeeFin||9999)-(b.apogeeFin||9999))
+      .slice(0,10);
+    if(!urgents.length)return'';
+    const cfgA=MATURITE_CFG['apogee'];
+    const cfgD=MATURITE_CFG['declin'];
+    return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
+        <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;">⏳ Apogée — déclin imminent</div>
+        <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:${cfgA.color}22;color:${cfgA.color};">à boire vite</div>
+      </div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">Vins en pleine apogée passant en déclin d'ici fin ${nowY+1}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+        ${urgents.map(w=>{
+          const finDansNMois=w.apogeeFin===nowY?`cette année`:w.apogeeFin===nowY+1?`en ${w.apogeeFin}`:`${w.apogeeFin}`;
+          const cave=db.caves.find(c=>c.id===w.caveId);
+          return`<div onclick="showDetail(${w.id})" style="background:var(--paper2);border-radius:10px;padding:8px 7px;cursor:pointer;border-left:2px solid ${cfgA.color};min-width:0;">
+            <div style="font-size:11px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px;">${w.nom}</div>
+            ${w.millesime?`<div style="font-size:10px;color:var(--ink3);">${w.millesime} · fin ${finDansNMois}</div>`:''}
+            ${cave?`<div style="font-size:9px;color:var(--ink4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${cave.name}</div>`:''}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  })()}
+
+  <!-- TOP 10 DÉCLIN -->
+  ${(()=>{
+    const nowY=new Date().getFullYear();
     const declin=wines.filter(w=>maturiteStatus(w)==='declin')
-      .sort((a,b)=>{
-        // Tri : plus l'apogée est dépassée depuis longtemps, plus c'est urgent
-        const nowY=new Date().getFullYear();
-        return (a.apogeeFin||9999)-(b.apogeeFin||9999);
-      })
-      .slice(0,30);
+      .sort((a,b)=>(a.apogeeFin||9999)-(b.apogeeFin||9999))
+      .slice(0,10);
     if(!declin.length)return'';
     const cfg=MATURITE_CFG['declin'];
+    const total=wines.filter(w=>maturiteStatus(w)==='declin').length;
     return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;">
       <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
         <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;">🍂 Vins en déclin</div>
-        <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:${cfg.color}22;color:${cfg.color};">${declin.length} à boire</div>
+        <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:${cfg.color}22;color:${cfg.color};">${total} au total</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
         ${declin.map(w=>{
-          const nowY=new Date().getFullYear();
           const ans=nowY-(w.apogeeFin||nowY);
           const cave=db.caves.find(c=>c.id===w.caveId);
           return`<div onclick="showDetail(${w.id})" style="background:var(--paper2);border-radius:10px;padding:8px 7px;cursor:pointer;border-left:2px solid ${cfg.color};min-width:0;">
