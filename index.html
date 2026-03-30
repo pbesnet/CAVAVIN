@@ -2159,18 +2159,18 @@ function topPositions(cave,wine,n){
   return result;
 }
 
-function setForcedPos(pos){
+function setForcedPos(pos,depth=0){
   if(editingWineId!==null){
-    // Mode ÉDITION : position unique
+    // Mode ÉDITION : position unique (depth ignoré — bestPosition gère AV/AR)
     _forcedPosition=(_forcedPosition===pos)?null:pos;
   } else {
-    // Mode AJOUT : multi-cave — on accumule jusqu'à qty emplacements
+    // Mode AJOUT : multi-cave — on accumule jusqu'à qty emplacements, avec depth
     const qty=Math.max(1,Math.min(100,parseInt(document.getElementById('add-qty')?.value)||1));
-    const idx=_forcedPlacements.findIndex(p=>p.caveId===activeCave&&p.pos===pos);
+    const idx=_forcedPlacements.findIndex(p=>p.caveId===activeCave&&p.pos===pos&&(p.depth||0)===depth);
     if(idx>=0){
       _forcedPlacements.splice(idx,1); // désélectionner
     } else if(_forcedPlacements.length<qty){
-      _forcedPlacements.push({caveId:activeCave,pos});
+      _forcedPlacements.push({caveId:activeCave,pos,depth});
     } else {
       showToast(`⚠️ Déjà ${qty} emplacement${qty>1?'s':''} choisi${qty>1?'s':''} — retire-en un d'abord`);
       return;
@@ -2179,13 +2179,13 @@ function setForcedPos(pos){
   renderPlacementPreview();
 }
 
-function setForcedNewPos(pos){
+function setForcedNewPos(pos,depth=0){
   const qty=Math.max(1,Math.min(100,parseInt(document.getElementById('add-qty')?.value)||1));
   const maxNew=Math.max(0,qty-1);
   const caveId=_editExtraCaveId||activeCave;
-  const idx=_forcedPlacements.findIndex(p=>p.caveId===caveId&&p.pos===pos);
+  const idx=_forcedPlacements.findIndex(p=>p.caveId===caveId&&p.pos===pos&&(p.depth||0)===depth);
   if(idx>=0){_forcedPlacements.splice(idx,1);}
-  else if(_forcedPlacements.length<maxNew){_forcedPlacements.push({caveId,pos});}
+  else if(_forcedPlacements.length<maxNew){_forcedPlacements.push({caveId,pos,depth});}
   else{showToast(`⚠️ Déjà ${maxNew} emplacement${maxNew>1?'s':''} choisi${maxNew>1?'s':''} — retire-en un d'abord`);return;}
   renderPlacementPreview();
 }
@@ -2373,14 +2373,16 @@ function renderPlacementPreview(){
   let _gridExtraSuggested=[];
   let _gridExtraDelta=0;
   if(!isEditMode){
-    const _fc=_forcedPlacements.filter(p=>p.caveId===activeCave).map(p=>p.pos);
+    // _fc = clés "pos|dN" des emplacements forcés dans la cave active
+    const _fc=_forcedPlacements.filter(p=>p.caveId===activeCave).map(p=>p.pos+'|d'+(p.depth||0));
     const _rem=qty-_forcedPlacements.length;
-    _gridExtraForced=_fc;
+    _gridExtraForced=_fc; // tableau de clés "pos|dN" (même format que suggestions)
     _gridExtraDelta=_fc.length+_rem; // total pouvant être forcés/suggérés dans cette cave
     if(_rem>0||_fc.length>0){
       // Suggestions pour les places restantes non encore forcées dans cette cave
+      // Filtrer les slots déjà forcés par clé exacte pos|dN
       _gridExtraSuggested=topPositions(cave,{couleur,caveId:cave.id},_fc.length+Math.max(0,_rem))
-        .filter(p=>!_fc.includes(p.split('|d')[0]));
+        .filter(p=>!_fc.includes(p));
     }
     // En mode ajout, on utilise extraForced/extraSuggested → supprimer suggestions main
     _gridSuggested=[];
@@ -2474,10 +2476,11 @@ function renderPlacementPreview(){
       </select>`;
       if(extraCaveCandidate&&!extraCaveCandidate.vrac){
         const extraWines=winesOfCave(extraCaveCandidate.id);
-        const forcedInExtraCave=_forcedPlacements.filter(p=>p.caveId===extraCaveCandidate.id).map(p=>p.pos);
+        // forcedInExtraCave = clés "pos|dN" des emplacements forcés dans cette extra cave
+        const forcedInExtraCave=_forcedPlacements.filter(p=>p.caveId===extraCaveCandidate.id).map(p=>p.pos+'|d'+(p.depth||0));
         const remInExtraCave=delta-_forcedPlacements.length;
         const extraSugPos=topPositions(extraCaveCandidate,{couleur,caveId:extraCaveCandidate.id},forcedInExtraCave.length+Math.max(0,remInExtraCave))
-          .filter(p=>!forcedInExtraCave.includes(p.split('|d')[0]));
+          .filter(p=>!forcedInExtraCave.includes(p));
         const maxColsE=extraCaveCandidate.clayettes.reduce((m,cl)=>Math.max(m,cl.cols),1);
         const szE=Math.max(10,Math.min(20,Math.floor((availW-(maxColsE-1)*2)/maxColsE)));
         const gapE=Math.max(2,Math.round(szE*.18));
@@ -2824,23 +2827,19 @@ function saveWine(){
     if(delta>0){
       const baseWine={...fields,notes:null,addedAt:new Date().toISOString()};
       // Placer d'abord les bouteilles forcées (multi-cave via _forcedPlacements)
+      // Grouper par cave en gardant la profondeur choisie par l'utilisateur
       const byCave=new Map();
       for(const fp of _forcedPlacements){
         if(!byCave.has(fp.caveId))byCave.set(fp.caveId,[]);
-        byCave.get(fp.caveId).push(fp.pos);
+        byCave.get(fp.caveId).push({pos:fp.pos,depth:fp.depth||0});
       }
-      for(const [cid,positions] of byCave){
+      for(const [cid,slots] of byCave){
         const tc=getCave(cid);if(!tc)continue;
-        for(const fpos of positions){
+        for(const {pos:fpos,depth:fdepth} of slots){
           const wine={...baseWine,caveId:cid,id:db.nWine++};
-          // Depth-aware : essayer AV puis AR
-          const fpPp=parsePos(fpos);
-          const fpCl=fpPp?tc.clayettes[fpPp.ci]:null;
-          const fpMaxD=fpCl?.depth||1;
-          const tk0=db.wines.find(w=>w.caveId===cid&&w.position===fpos&&(w.depth||0)===0);
-          const tk1=fpMaxD===2?db.wines.find(w=>w.caveId===cid&&w.position===fpos&&(w.depth||0)===1):true;
-          if(!tk0){wine.position=fpos;wine.depth=0;}
-          else if(fpMaxD===2&&!tk1){wine.position=fpos;wine.depth=1;}
+          // Utiliser exactement la profondeur choisie ; si occupé → bestPosition
+          const taken=db.wines.find(w=>w.caveId===cid&&w.position===fpos&&(w.depth||0)===fdepth);
+          if(!taken){wine.position=fpos;wine.depth=fdepth;}
           else{const bp2=bestPosition(tc,wine);if(bp2?.pos){wine.position=bp2.pos;wine.depth=bp2.depth||0;}}
           if(wine.position)newPositions.push(wine.position);
           db.wines.push(wine);
@@ -2904,9 +2903,9 @@ function saveWine(){
     for(const fp of _forcedPlacements){
       const fc=getCave(fp.caveId);if(!fc)continue;
       const wine={...fields,caveId:fp.caveId,notes:null,addedAt:new Date().toISOString(),id:db.nWine++};
-      // Vérifier que la position est encore libre
-      const isFree=!db.wines.find(w=>w.caveId===fp.caveId&&w.position===fp.pos);
-      if(isFree&&fp.pos){wine.position=fp.pos;newPositions.push(fp.pos);}
+      // Vérifier que la position est encore libre (depth-aware)
+      const isFree=!db.wines.find(w=>w.caveId===fp.caveId&&w.position===fp.pos&&(w.depth||0)===(fp.depth||0));
+      if(isFree&&fp.pos){wine.position=fp.pos;wine.depth=fp.depth||0;newPositions.push(fp.pos);}
       else{const bpf=bestPosition(fc,wine);if(bpf?.pos){wine.position=bpf.pos;if(bpf.depth!==undefined)wine.depth=bpf.depth;newPositions.push(bpf.pos);}}
       db.wines.push(wine);newWineIds.push(wine.id);
       placed.add(wine.id);
