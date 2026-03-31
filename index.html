@@ -1334,6 +1334,8 @@ async function lwSignIn(){
     currentUser=d.user;
     if(d.api_key){apiKey=d.api_key;localStorage.setItem('anthropic_key',apiKey);}
     else{apiKey=localStorage.getItem('anthropic_key')||'';}
+    // Compte demo_only : force le mode démo quoi que choisisse l'utilisateur
+    if(d.user?.demo_only===true){_enterDemoOnlyMode(d.user);return;}
     if(selectedEnv==='demo'){
       // Mode démo : auth réussie mais on charge les données démo isolées
       isDemo=true;
@@ -1394,7 +1396,11 @@ async function loadSharedData(){
         }
       }catch(_){}
       const localJournal=localDb.journal||[];
+      const _savedRecoWE=db.recoWE||null; // préserver avant écrasement cloud
       db = remoteData;
+      // Restaurer recoWE (local-only, jamais dans Aiven)
+      if(_savedRecoWE)db.recoWE=_savedRecoWE;
+      else{try{const rw=localStorage.getItem('cavavin_reco_we');if(rw)db.recoWE=JSON.parse(rw);}catch(_){}}
       if(!db.statsAnnuelles) db.statsAnnuelles = {};
       // Fusionner statsAnnuelles : prendre le max pour chaque mois (local peut être + récent qu'Aiven)
       for(const [yr, months] of Object.entries(localStats)){
@@ -1448,6 +1454,24 @@ function applyRoleUI(){
   }
 }
 
+// — Helper demo_only : force le mode démo pour un compte restreint —
+function _enterDemoOnlyMode(user){
+  currentUser=user;
+  isDemo=true;
+  setEnvMode('demo');
+  // Charger les données démo depuis le cache local, ou les générer
+  db={caves:[],wines:[],journal:[],nCave:0,nWine:0,statsAnnuelles:{}};
+  dbLoad(); // charge cavedb_demo si existe
+  document.getElementById('lw-loading').style.display='none';
+  if(!db.caves.length){
+    initDemoData(); // génère et affiche (appelle hideLoginWall + renderPage en fin)
+  }else{
+    activeCave=db.caves[0]?.id||null;
+    setDemoUI();hideLoginWall();renderPage();
+    showToast('🎮 Accès démo — '+user.email);
+  }
+}
+
 // — Init backend au démarrage —
 async function initBackend(){
   const timeout=t=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),t));
@@ -1465,6 +1489,7 @@ async function initBackend(){
       ]);
       if(r.ok){
         const {user}=await r.json();
+        if(user?.demo_only===true){_enterDemoOnlyMode(user);return;}
         currentUser=user;
         setRole();applyRoleUI();
         loadSharedData().then(()=>renderPage()).catch(()=>{
@@ -1490,6 +1515,7 @@ async function initBackend(){
     console.log(`[API] getSession: ${Math.round(performance.now()-_tS0)}ms`);
     if(r.ok){
       const {user}=await r.json();
+      if(user?.demo_only===true){_enterDemoOnlyMode(user);return;}
       currentUser=user;
       await Promise.race([loadSharedData(),timeout(5000)]);
       setRole();applyRoleUI();renderPage();hideLoginWall();
@@ -1548,7 +1574,9 @@ document.addEventListener('visibilitychange',()=>{
 });
 
 // — Déconnexion —
+let _signingOut=false;
 async function sbSignOut(){
+  if(_signingOut)return; // anti double-tap
   if(isDemo){
     isDemo=false;
     db={caves:[],wines:[],journal:[],nCave:0,nWine:0,statsAnnuelles:{}};
@@ -1560,13 +1588,21 @@ async function sbSignOut(){
     showToast('👋 Mode démo quitté');
     return;
   }
-  // Flush avant déconnexion — évite la perte de données
-  if(_pendingSync&&_jwtToken&&!isDemo){
+  _signingOut=true;
+  // Feedback visuel immédiat
+  const signoutEl=document.querySelector('[onclick="sbSignOut()"]');
+  if(signoutEl){signoutEl.style.opacity='.5';signoutEl.style.pointerEvents='none';}
+  // Flush sync — timeout 3s max pour ne pas bloquer
+  if(_pendingSync&&_jwtToken){
     clearTimeout(syncTimer);
-    updateSyncStatus('🔄 Sauvegarde…');
-    try{await _doCloudSync();}catch(_){}
+    try{await Promise.race([_doCloudSync(),new Promise(r=>setTimeout(r,3000))]);}catch(_){}
   }
-  try{if(_jwtToken)await fetch(`${API_URL}/api/auth/logout`,{method:'POST',headers:authHeaders()});}catch(_){}
+  // Appel logout serveur — timeout 3s
+  try{if(_jwtToken)await Promise.race([
+    fetch(`${API_URL}/api/auth/logout`,{method:'POST',headers:authHeaders()}),
+    new Promise(r=>setTimeout(r,3000))
+  ]);}catch(_){}
+  _signingOut=false;
   localStorage.removeItem('cavavin_token');
   _jwtToken='';
   currentUser=null;isAdmin=false;apiKey='';
@@ -1639,16 +1675,52 @@ function updateDbStatus(state){
 // MODE DÉMO
 // ═══════════════════════════════════════════
 
-/* Structure des caves démo */
+/* Structure des caves démo — 5 caves variées */
 const DEMO_CAVES_CONFIG=[
-  {name:'Bignon Vieillissement',description:'Cave principale de vieillissement — Bignon',lieu:'Bignon',type:'vieillissement',
-   clayettes:[{rows:8,cols:12},{rows:6,cols:10}]},
-  {name:'Bignon Service',description:'Cave de service quotidien — Bignon',lieu:'Bignon',type:'service',
-   clayettes:[{rows:4,cols:10}]},
-  {name:'Paris Appartement',description:'Petite cave de service — Paris',lieu:'Paris',type:'service',
-   clayettes:[{rows:3,cols:8}]},
-  {name:'Paris Vieillissement',description:'Cave secondaire longue garde — Paris',lieu:'Paris',type:'vieillissement',
-   clayettes:[{rows:5,cols:8}]},
+  // Cave 1 : grande cave de vieillissement — 3 clayettes, multi-rangs, multi-colonnes
+  {name:'Lyon — Grande Cave',description:'Cave principale de vieillissement — Croix-Rousse',lieu:'Lyon',type:'vieillissement',
+   clayettes:[
+     {rows:10,cols:12,label:'Bordeaux & Grands Rouges'},
+     {rows:8, cols:10,label:'Bourgogne & Rhône'},
+     {rows:5, cols:8, label:'Blancs & Champagnes'},
+   ]},
+  // Cave 2 : cave de service — 2 clayettes
+  {name:'Bordeaux — Cave Service',description:'Cave de service quotidien — rotation rapide',lieu:'Bordeaux',type:'service',
+   clayettes:[
+     {rows:4,cols:12,label:'Service principal'},
+     {rows:3,cols:8, label:'Apéritifs & Rosés'},
+   ]},
+  // Cave 3 : petite cave simple — 1 clayette
+  {name:'Paris — Cave Appartement',description:'Petite cave de service — Marais',lieu:'Paris',type:'service',
+   clayettes:[
+     {rows:3,cols:6,label:'Sélection semaine'},
+   ]},
+  // Cave 4 : cave secondaire — 2 clayettes
+  {name:'Strasbourg — Cave Garde',description:'Cave de garde secondaire — Orangerie',lieu:'Strasbourg',type:'vieillissement',
+   clayettes:[
+     {rows:6,cols:8,label:'Vieillissement A'},
+     {rows:4,cols:6,label:'Vieillissement B'},
+   ]},
+  // Cave 5 : cave à rhum — isRhum
+  {name:'Nantes — Cave à Rhum',description:'Collection rhums agricoles & industriels',lieu:'Nantes',type:'service',isRhum:true,
+   clayettes:[
+     {rows:4,cols:8,label:'Agricoles & Millésimés'},
+     {rows:3,cols:6,label:'Industriels & Blends'},
+   ]},
+];
+const DEMO_RHUM_CATALOG=[
+  {nom:'Barbancourt Réserve Spéciale 15 ans',distillerie:'Barbancourt',pays:'Haïti',degre:43,millesime:null,prix:55},
+  {nom:'HSE XO Millésimé',distillerie:'HSE',pays:'Martinique',degre:42,millesime:2012,prix:95},
+  {nom:'J.M. XO',distillerie:'J.M.',pays:'Martinique',degre:45,millesime:null,prix:80},
+  {nom:'Trois Rivières Single Cask',distillerie:'Trois Rivières',pays:'Martinique',degre:46,millesime:2015,prix:75},
+  {nom:'Appleton Estate 21 ans',distillerie:'Appleton Estate',pays:'Jamaïque',degre:43,millesime:null,prix:110},
+  {nom:'El Dorado 21 ans',distillerie:'Demerara',pays:'Guyana',degre:43,millesime:null,prix:120},
+  {nom:'Foursquare Exceptionally Rare',distillerie:'Foursquare',pays:'Barbade',degre:59,millesime:2008,prix:145},
+  {nom:'Karukera Réserve Spéciale',distillerie:'Karukera',pays:'Guadeloupe',degre:42,millesime:2016,prix:65},
+  {nom:'Clairin Vaval',distillerie:'Clairin',pays:'Haïti',degre:52,millesime:null,prix:45},
+  {nom:'Plantation XO 20th Anniversary',distillerie:'Plantation',pays:'Barbade',degre:40,millesime:null,prix:55},
+  {nom:'Neisson Réserve Spéciale',distillerie:'Neisson',pays:'Martinique',degre:42,millesime:2018,prix:70},
+  {nom:'Chamarel XO',distillerie:'Chamarel',pays:'Maurice',degre:43,millesime:2014,prix:85},
 ];
 
 /* Catalogue vins démo — identique au catalogue seedData */
@@ -1805,14 +1877,13 @@ function _initDemoDataSync(){
     });
   });
 
-  // 2. Remplir 80% de chaque cave, ligne par ligne du bas vers le haut
+  // 2. Remplir 80% de chaque cave vins, ligne par ligne du bas vers le haut
   let totalAdded=0;
-  db.caves.forEach(cave=>{
+  db.caves.filter(c=>!c.isRhum).forEach(cave=>{
     cave.clayettes.forEach((cl,ci)=>{
       const totalCells=cl.rows*cl.cols;
       const target=Math.round(totalCells*0.80);
       let placed=0;
-      // Positions ligne par ligne du bas vers le haut
       outer: for(let r=cl.rows-1;r>=0;r--){
         for(let c=0;c<cl.cols;c++){
           if(placed>=target)break outer;
@@ -1847,6 +1918,32 @@ function _initDemoDataSync(){
     });
   });
 
+  // 2b. Remplir la cave à rhum (~75%)
+  const rhumCave=db.caves.find(c=>c.isRhum);
+  if(rhumCave){
+    rhumCave.clayettes.forEach((cl,ci)=>{
+      const target=Math.round(cl.rows*cl.cols*0.75);
+      let placed=0;
+      outer2: for(let r=cl.rows-1;r>=0;r--){
+        for(let c=0;c<cl.cols;c++){
+          if(placed>=target)break outer2;
+          const pos=mkPos(ci,r,c);
+          const src=rnd(DEMO_RHUM_CATALOG);
+          db.wines.push({
+            id:db.nWine++,
+            nom:src.nom,couleur:'rhum',
+            distillerie:src.distillerie,pays:src.pays,
+            degre:src.degre,millesime:src.millesime||null,
+            prix:src.prix,prixIA:false,
+            caveId:rhumCave.id,position:pos,
+            addedAt:new Date(Date.now()-Math.random()*3e10).toISOString()
+          });
+          placed++;totalAdded++;
+        }
+      }
+    });
+  }
+
   // 3. Quelques entrées de journal
   const journalNotes=[
     'Ouverture d\'une bouteille de Château Margaux 2016 — exceptionnel, en pleine apogée.',
@@ -1862,6 +1959,18 @@ function _initDemoDataSync(){
       date:new Date(Date.now()-(journalNotes.length-i)*864e7).toISOString()
     });
   });
+
+  // 4. Stats démo réalistes (2 dernières années)
+  const curY=new Date().getFullYear();
+  const prevY=curY-1;
+  const demoStats={};
+  demoStats[String(prevY)]={'01':{e:18,s:6},'02':{e:12,s:8},'03':{e:24,s:10},'04':{e:9,s:7},'05':{e:15,s:12},'06':{e:6,s:14},'07':{e:4,s:11},'08':{e:3,s:9},'09':{e:14,s:5},'10':{e:22,s:8},'11':{e:19,s:10},'12':{e:28,s:14}};
+  const curM=new Date().getMonth()+1;
+  demoStats[String(curY)]={};
+  const sE=[16,10,20,8,13,5,4,2,17,21,18,25];const sS=[5,7,9,6,11,13,10,8,4,7,9,12];
+  for(let m=1;m<=curM;m++){const ms=String(m).padStart(2,'0');demoStats[String(curY)][ms]={e:sE[m-1],s:m<curM?sS[m-1]:Math.floor(sS[m-1]*0.4)};}
+  db.statsAnnuelles=demoStats;
+  try{localStorage.setItem('cavavin_stats_bak',JSON.stringify(demoStats));}catch(_){}
 
   dbSave();
   activeCave=db.caves[0]?.id||null;
@@ -2194,6 +2303,8 @@ async function _doCloudSync(retrying=false){
 function dbLoad(){
   const stored=localStorage.getItem(lsKey());
   if(stored)try{db=JSON.parse(stored);}catch(e){}
+  // recoWE est dans sa propre clé (locale, jamais syncée cloud)
+  try{const rw=localStorage.getItem('cavavin_reco_we');if(rw&&!db.recoWE)db.recoWE=JSON.parse(rw);}catch(_){}
   ensureVracCave();
 }
 
@@ -5860,10 +5971,12 @@ MISSION : Recommande 2 vins et 1 rhum parfaitement adaptés à la météo. Favor
     // 5. Enrichir avec données réelles
     const enrich=item=>{if(!item)return null;const w=db.wines.find(x=>x.id===item.id);if(!w)return null;return{...item,nom:w.nom,millesime:w.millesime,couleur:w.couleur,region:w.region,mat:maturiteStatus(w)};};
     db.recoWE={updatedAt:new Date().toISOString(),auto,location:locationName,lat,lon,weekend:wkd.label,weather,conseil:reco.conseil_general,vins:(reco.vins||[]).map(enrich).filter(Boolean),rhum:enrich(reco.rhum),loading:false,error:null};
+    try{localStorage.setItem('cavavin_reco_we',JSON.stringify(db.recoWE));}catch(_){}
     dbSave();
   }catch(e){
     if(!db.recoWE)db.recoWE={};
     db.recoWE.loading=false;db.recoWE.error=e.message;
+    try{localStorage.setItem('cavavin_reco_we',JSON.stringify(db.recoWE));}catch(_){}
     dbSave();
   }
   if(currentPage==='supercave')renderSupercave();
