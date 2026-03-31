@@ -3991,15 +3991,27 @@ function buildCaveContextForAI(){
       return `${label}(${cl.rows}×${cl.cols}${d===2?' double-rangée AV+AR':''})`;
     }).join(', ');
     const header=`Cave "${c.name}" [type:${typeLabel}${lieuLabel} · structure:${structLabel} · ${ws.length} bouteilles]`;
-    // Liste des vins
-    const lines=ws.slice(0,60).map(w=>{
+    // Groupement des vins identiques (qty>1 = N records distincts) pour ne pas gaspiller de slots
+    const groups=new Map();
+    ws.forEach(w=>{
+      const key=w.couleur==='rhum'
+        ?`rhum|${w.nom}|${w.rhumType||''}|${w.distillerie||''}`
+        :`${w.couleur}|${w.nom}|${w.millesime||''}|${w.appellation||''}|${w.producteur||''}`;
+      if(!groups.has(key))groups.set(key,{wine:w,positions:[],ids:[]});
+      const g=groups.get(key);
+      g.positions.push(_winePos(w));
+      g.ids.push(w.id);
+    });
+    const lines=[...groups.values()].map(({wine:w,positions,ids})=>{
+      const posStr=positions.length===1?positions[0]:`${positions.length}× [${positions.join(', ')}]`;
+      const idStr=ids.length===1?`id=${ids[0]}`:`ids=${ids.join(',')}`;
       const st=maturiteStatus(w);
-      const ln=(db.journal||[]).filter(j=>j.wineId===w.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
+      const ln=(db.journal||[]).filter(j=>ids.includes(j.wineId)).sort((a,b)=>b.date.localeCompare(a.date))[0];
       const noteStr=ln?` | dég:${ln.note}★${ln.cmt?' "'+ln.cmt.slice(0,40)+'"':''}${ln.date?' ('+ln.date+')':''}` :'';
       if(w.couleur==='rhum'){
-        return `  id=${w.id} "${w.nom}" ${w.rhumType||'?'} | pos:${_winePos(w)} | distillerie:${w.distillerie||'?'} | pays:${w.pays||'?'} | prix:${w.prix||'?'}€${noteStr}`;
+        return `  ${idStr} "${w.nom}" ${w.rhumType||'?'} | pos:${posStr} | distillerie:${w.distillerie||'?'} | pays:${w.pays||'?'} | prix:${w.prix||'?'}€${noteStr}`;
       }
-      return `  id=${w.id} "${w.nom}" ${w.millesime||'?'} | pos:${_winePos(w)} | prod:${w.producteur||'?'} | appel:${w.appellation||'?'} | région:${w.region||'?'} | prix:${w.prix||'?'}€ | score:${w.scorePresse||'?'}/100 | achat:${w.dateAchat||'?'} | ${st?_ml[st]:'maturité?'}${w.apogeeDebut?` (apogée:${w.apogeeDebut}-${w.apogeeFin})`:''}${noteStr}`;
+      return `  ${idStr} "${w.nom}" ${w.couleur} ${w.millesime||'?'} | pos:${posStr} | prod:${w.producteur||'?'} | appel:${w.appellation||'?'} | région:${w.region||'?'} | prix:${w.prix||'?'}€ | score:${w.scorePresse||'?'}/100 | achat:${w.dateAchat||'?'} | ${st?_ml[st]:'maturité?'}${w.apogeeDebut?` (apogée:${w.apogeeDebut}-${w.apogeeFin})`:''}${noteStr}`;
     });
     return header+'\n'+lines.join('\n');
   }).join('\n\n');
@@ -6771,10 +6783,10 @@ function renderSupercave(){
   <!-- TOP 10 APOGÉE → DÉCLIN IMMINANT (≤12 mois) -->
   ${(()=>{
     const nowY=new Date().getFullYear();
-    // J+6 mois : on calcule la date dans 6 mois, un vin est "imminent" si son apogée
-    // se termine avant cette date (Jan 1 de apogeeFin+1 <= today+6 mois)
-    const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()+6);
-    const urgents=wines.filter(w=>maturiteStatus(w)==='apogee'&&w.apogeeFin&&new Date(w.apogeeFin+1,0,1)<=cutoff)
+    // Déclin imminent : aujourd'hui >= 1er juillet de l'année apogeeFin
+    // (= 6 mois avant le 1er janvier de apogeeFin+1, premier jour du déclin)
+    const today=new Date();
+    const urgents=wines.filter(w=>maturiteStatus(w)==='apogee'&&w.apogeeFin&&today>=new Date(w.apogeeFin,6,1))
       .sort((a,b)=>(a.apogeeFin||9999)-(b.apogeeFin||9999))
       .slice(0,10);
     if(!urgents.length)return'';
