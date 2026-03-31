@@ -2667,7 +2667,7 @@ function renderPlacementPreview(){
   const isRhumForm=couleurForCave==='rhum';
   const selectableCaves=db.caves.filter(c=>!c.vrac&&(isRhumForm?c.isRhum:!c.isRhum));
   if(!selectableCaves.length){container.style.display='none';return;}
-  if(!activeCave||!getCave(activeCave)||getCave(activeCave)?.isRhum!==isRhumForm){
+  if(!activeCave||!getCave(activeCave)||!!getCave(activeCave)?.isRhum!==isRhumForm){
     activeCave=selectableCaves[0]?.id||activeCave;
     updateTopbarSel(); // synchroniser le sélecteur topbar après auto-switch
   }
@@ -4771,10 +4771,12 @@ function renderInv(){
   renderInvCaveTabs();
   // Tabs régions dynamiques
   const regBar=document.getElementById('inv-region-tabs');
-  // Filtre type rhum (uniquement quand filtre rhum actif)
+  // Contexte rhum : filtre couleur = rhum OU cave sélectionnée = cave à rhum
+  const isRhumContext=invFilter==='rhum'||(invCaveFilter!==null&&!!getCave(invCaveFilter)?.isRhum);
+  // Filtre type rhum (quand contexte rhum actif)
   const rhumTypeBar=document.getElementById('inv-rhum-type-tabs');
   if(rhumTypeBar){
-    if(invFilter==='rhum'){
+    if(isRhumContext){
       const rhumBaseWines=db.wines.filter(w=>{
         if(invCaveFilter!==null&&w.caveId!==invCaveFilter)return false;
         return w.couleur==='rhum'&&w.rhumType;
@@ -4790,8 +4792,8 @@ function renderInv(){
     }else{rhumTypeBar.style.display='none';}
   }
   if(regBar){
-    // Masquer les régions si filtre rhum actif (remplacé par filtre type)
-    if(invFilter==='rhum'){regBar.style.display='none';}
+    // Masquer les régions si contexte rhum (remplacé par filtre type)
+    if(isRhumContext){regBar.style.display='none';}
     else{
     // Calculer les régions disponibles sur le filtre actuel (cave + couleur, sans région)
     const baseWines=db.wines.filter(w=>{
@@ -4833,7 +4835,7 @@ function renderInv(){
           return`<button onclick="setInvMaturite('${m}')" class="btn ft" style="white-space:nowrap;border-radius:99px;padding:5px 12px;font-size:11px;flex-shrink:0;border:none;cursor:pointer;font-family:'Outfit',sans-serif;background:${active?MAT_COLOR[m]:'var(--paper2)'};color:${active?'#fff':'var(--ink2)'};">${MAT_LABEL[m]} <span style="opacity:.7;">${matMap[m]}</span></button>`;
         }).join('');
     }else{matBar.style.display='none';}
-    if(invFilter==='rhum')matBar.style.display='none'; // pas de maturité pour le rhum
+    if(isRhumContext)matBar.style.display='none'; // pas de maturité pour le rhum
   }
   const q=(document.getElementById('inv-q')?.value||'').toLowerCase();
   let wines=db.wines.filter(w=>{
