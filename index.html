@@ -515,8 +515,12 @@ div[onclick], span[onclick]{
   <div style="width:100%;max-width:340px;position:relative;">
     <!-- Logo -->
     <div style="text-align:center;margin-bottom:36px;">
-      <div style="width:64px;height:64px;border-radius:20px;background:linear-gradient(135deg,#8B1A2E,#C23052);display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 14px;box-shadow:0 8px 24px rgba(194,48,82,.35);">🍷</div>
-      <h1 style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#fff;margin:0;letter-spacing:.3px;">Mes Caves à Vin</h1>
+      <!-- Icônes verre à vin + verre rhum -->
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin:0 auto 14px;">
+        <div style="width:56px;height:56px;border-radius:18px;background:linear-gradient(135deg,#8B1A2E,#C23052);display:flex;align-items:center;justify-content:center;font-size:26px;box-shadow:0 8px 24px rgba(194,48,82,.35);">🍷</div>
+        <div style="width:56px;height:56px;border-radius:18px;background:linear-gradient(135deg,#5C3010,#A0581A);display:flex;align-items:center;justify-content:center;font-size:26px;box-shadow:0 8px 24px rgba(120,60,10,.35);">🥃</div>
+      </div>
+      <h1 style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#fff;margin:0;letter-spacing:.3px;">Mes Caves</h1>
       <p style="color:rgba(255,255,255,.45);font-size:13px;margin-top:6px;">Bienvenue — connectez-vous pour accéder à vos caves</p>
     </div>
     <!-- Formulaire -->
@@ -2464,7 +2468,8 @@ function _renderCaveGrid(cave,allWines,{batchPosSet=new Set(),forcedPos=null,sug
           } else if(isBatch){
             html+=`<div onclick="${onClickFn}(${_ca})" title="Bouteille du lot — cliquer pour déplacer" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#50CC70,#1A8840);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2EA855;flex-shrink:0;cursor:pointer;"></div>`;
           } else if(occupiedWine){
-            html+=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${_DOT_COLORS[occupiedWine.couleur]||'radial-gradient(circle at 35% 30%,#888,#444)'};opacity:.78;flex-shrink:0;" title="${occupiedWine.nom||''}"></div>`;
+            const _owBg=occupiedWine.couleur==='rhum'?(_RHUM_TYPE_DOT_COLORS[occupiedWine.rhumType]||_DOT_COLORS.rhum):(_DOT_COLORS[occupiedWine.couleur]||'radial-gradient(circle at 35% 30%,#888,#444)');
+            html+=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${_owBg};opacity:.78;flex-shrink:0;" title="${occupiedWine.nom||''}"></div>`;
           } else if(isForcedExtra){
             html+=`<div onclick="${onClickFn}(${_ca})" title="Extra forcée #${extraForcedIdx+1}" style="width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2060D0;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:${sz<=12?7:8}px;font-weight:700;color:#fff;cursor:pointer;">${extraForcedIdx+1}</div>`;
           } else if(extraSugIdx>=0&&extraForcedPositions.length<extraDelta){
@@ -3164,6 +3169,7 @@ function saveWine(){
       db.wines.push(wine);newWineIds.push(wine.id);
       placed.add(wine.id);
     }
+    toMain+=placed.size; // bouteilles effectivement placées via forcedPlacements
     // 2. Bouteilles non forcées (si qty > _forcedPlacements.length)
     const unforcedCount=qty-_forcedPlacements.length;
     if(unforcedCount>0){
@@ -3259,8 +3265,9 @@ function saveWine(){
   }
 
   // ── Reset formulaire complet ─────────────────────────────────────────
-  resetAddForm();
-  renderPlacementPreview();
+  const _savedActiveCave=activeCave; // mémoriser avant reset
+  resetAddForm();                    // remet couleur='rouge' ce qui ferait switcher la cave
+  activeCave=_savedActiveCave;       // restaurer la cave rhum d'origine
 
   if(toVrac>0&&vrac){
     showToast(`⚠️ Cave pleine : ${toMain} bouteille${toMain>1?'s':''} rangée${toMain>1?'s':''} dans ${cave.name}, ${toVrac} en Cave Vrac`);
@@ -3351,8 +3358,31 @@ const _DOT_COLORS={
   blanc: 'radial-gradient(circle at 35% 30%,#F0CC40,#A07810)',
   rose:  'radial-gradient(circle at 35% 30%,#F05070,#A02040)',
   champagne:'radial-gradient(circle at 35% 30%,#D0A828,#806010)',
+  rhum:  'radial-gradient(circle at 35% 30%,#D08030,#7A4010)',
 };
-function _dot(sz,type,couleur){
+// Couleurs par type de rhum (dot mini-schéma, grille cave, inventaire)
+const _RHUM_TYPE_DOT_COLORS={
+  'Blanc':   'radial-gradient(circle at 35% 30%,#B8D0E8,#607890)',
+  'Paille':  'radial-gradient(circle at 35% 30%,#F8D860,#C09010)',
+  'VO':      'radial-gradient(circle at 35% 30%,#E8A030,#A06010)',
+  'VSOP':    'radial-gradient(circle at 35% 30%,#C87020,#804010)',
+  'XO':      'radial-gradient(circle at 35% 30%,#A04810,#602008)',
+  'Réserve': 'radial-gradient(circle at 35% 30%,#7A2808,#401004)',
+  'Punch':   'radial-gradient(circle at 35% 30%,#E04030,#901020)',
+  'Liqueur': 'radial-gradient(circle at 35% 30%,#9030A0,#501060)',
+};
+// Gradients pour les vignettes de la page cave rhum (un peu plus clairs)
+const _RHUM_TYPE_GRAD={
+  'Blanc':   'linear-gradient(135deg,#607890,#B0C8E0)',
+  'Paille':  'linear-gradient(135deg,#9A7808,#F0C830)',
+  'VO':      'linear-gradient(135deg,#804808,#D08030)',
+  'VSOP':    'linear-gradient(135deg,#603010,#A04808)',
+  'XO':      'linear-gradient(135deg,#401808,#782808)',
+  'Réserve': 'linear-gradient(135deg,#280A04,#581808)',
+  'Punch':   'linear-gradient(135deg,#801020,#CC2830)',
+  'Liqueur': 'linear-gradient(135deg,#501070,#8828A0)',
+};
+function _dot(sz,type,couleur,rhumType){
   const base=`width:${sz}px;height:${sz}px;border-radius:50%;flex-shrink:0;display:inline-block;`;
   if(type==='target')
     return`<div style="${base}background:radial-gradient(circle at 35% 30%,#50CC70,#1A8840);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2EA855;position:relative;z-index:2;"></div>`;
@@ -3362,8 +3392,10 @@ function _dot(sz,type,couleur){
     return`<div style="${base}background:radial-gradient(circle at 35% 30%,#40E090,#18A850);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #18A850;"></div>`;
   if(type==='virtual')
     return`<div style="${base}background:repeating-linear-gradient(45deg,rgba(46,168,85,.7) 0,rgba(46,168,85,.7) 2px,transparent 2px,transparent 5px);border:1.5px solid #2EA855;box-sizing:border-box;"></div>`;
-  if(type==='wine')
-    return`<div style="${base}background:${_DOT_COLORS[couleur]||'radial-gradient(circle at 35% 30%,#888,#444)'};opacity:.78;"></div>`;
+  if(type==='wine'){
+    const _wBg=couleur==='rhum'?(_RHUM_TYPE_DOT_COLORS[rhumType]||_DOT_COLORS.rhum):(_DOT_COLORS[couleur]||'radial-gradient(circle at 35% 30%,#888,#444)');
+    return`<div style="${base}background:${_wBg};opacity:.78;"></div>`;}
+
   if(type==='forced')
     return`<div style="${base}background:radial-gradient(circle at 35% 30%,#4488FF,#1A3DAA);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2255CC;"></div>`;
   // empty
@@ -3404,7 +3436,7 @@ function buildMiniCaveSchema(wine,sz=0){
             :allWines.find(x=>x.position===pos);
           // Ce vin = même position ET même profondeur
           const isTarget=pos===wine.position&&(clDepthS===1||(wine.depth||0)===dv);
-          html+=_dot(sz,isTarget?'target':w?'wine':'empty',w?.couleur);
+          html+=_dot(sz,isTarget?'target':w?'wine':'empty',w?.couleur,w?.rhumType);
         }
         html+='</div>';
       }
@@ -4680,7 +4712,7 @@ function renderInv(){
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;">
         <div style="font-size:12px;font-weight:700;color:var(--ink);white-space:nowrap;">${w.prix?`${w.prixIA?'<span title="Prix estimé par IA" style="color:var(--ink3)">~</span>':''}${w.prix} €`:'<span style="color:var(--ink3);font-weight:400;font-size:11px;">— €</span>'}</div>
-        <div style="font-size:11px;background:var(--paper2);padding:3px 8px;border-radius:99px;color:var(--ink2);font-weight:600;">${w.position||'—'}</div>
+        <div style="font-size:11px;background:var(--paper2);padding:3px 8px;border-radius:99px;color:var(--ink2);font-weight:600;">${(()=>{if(w.couleur!=='rhum'||!w.position)return w.position||'—';const _pp=parsePos(w.position);const _cv=getCave(w.caveId);return _pp&&_cv?(_cv.clayettes[_pp.ci]?.label||('Clayette '+(_pp.ci+1))):w.position||'—';})()}</div>
       </div>
     </div>`).join('');
     return header+rows;
@@ -4733,8 +4765,10 @@ function showDetail(id,fromChat=false){
       <div style="display:flex;gap:8px;align-items:center;">
         <span style="font-size:${fromInv?'16':'22'}px;">📍</span>
         <div>
-          <div style="font-weight:600;font-size:12px;">${cave?.name||'?'} · <b>${w.position||'—'}</b>${cave&&pp&&(cave.clayettes[pp.ci]?.depth||1)===2?` <span style="font-size:10px;background:var(--paper3);border-radius:4px;padding:1px 5px;">${(w.depth||0)===0?'AV':'AR'}</span>`:''}</div>
-          ${pp?`<div style="font-size:10px;color:var(--ink2);">${cave?.clayettes[pp.ci]?.label||('Clayette '+(pp.ci+1))} · Ligne ${pp.r+1} · Col. ${pp.c+1}${cave&&(cave.clayettes[pp.ci]?.depth||1)===2?' · '+(w.depth===1?'Fond (AR)':'Devant (AV)'):''}</div>`:''}
+          ${w.couleur==='rhum'
+            ?`<div style="font-weight:600;font-size:12px;">${cave?.name||'?'} · <b>${pp?(cave?.clayettes[pp.ci]?.label||('Clayette '+(pp.ci+1))):'—'}</b></div>`
+            :`<div style="font-weight:600;font-size:12px;">${cave?.name||'?'} · <b>${w.position||'—'}</b>${cave&&pp&&(cave.clayettes[pp.ci]?.depth||1)===2?` <span style="font-size:10px;background:var(--paper3);border-radius:4px;padding:1px 5px;">${(w.depth||0)===0?'AV':'AR'}</span>`:''}</div>
+          ${pp?`<div style="font-size:10px;color:var(--ink2);">${cave?.clayettes[pp.ci]?.label||('Clayette '+(pp.ci+1))} · Ligne ${pp.r+1} · Col. ${pp.c+1}${cave&&(cave.clayettes[pp.ci]?.depth||1)===2?' · '+(w.depth===1?'Fond (AR)':'Devant (AV)'):''}</div>`:''}`}
         </div>
       </div>
     </div>
@@ -5174,7 +5208,7 @@ function renderCavePage(){
   const cnt=c=>wines.filter(w=>w.couleur===c).length;
   const nRouge=cnt('rouge'),nBlanc=cnt('blanc'),nRose=cnt('rose'),nChamp=cnt('champagne');
 
-  // Régions triées
+  // Régions triées (uniquement pour caves vin)
   const regMap={};
   wines.forEach(w=>{if(w.region)regMap[w.region]=(regMap[w.region]||0)+1;});
   const regions=Object.entries(regMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
@@ -5187,12 +5221,12 @@ function renderCavePage(){
     rose:'linear-gradient(135deg,#CC0050 0%,#FF3D78 100%)',
     champagne:'linear-gradient(135deg,#7A5500 0%,#C49010 100%)'
   };
-  const colorCards=[
-    {key:'rouge',label:'Rouges',n:nRouge,emoji:'🔴'},
-    {key:'blanc',label:'Blancs',n:nBlanc,emoji:'🟡'},
-    {key:'rose',label:'Rosés',n:nRose,emoji:'🩷'},
-    {key:'champagne',label:'Champagne',n:nChamp,emoji:'🥂'},
-  ];
+  // Pour cave rhum : vignettes par type de rhum
+  const RHUM_TYPES_ORDER=['Blanc','Paille','VO','VSOP','XO','Réserve','Punch','Liqueur'];
+  const isRhumCavePage=!!cave.isRhum;
+  const colorCards=isRhumCavePage
+    ?RHUM_TYPES_ORDER.map(t=>({key:t,label:t,n:wines.filter(w=>w.rhumType===t).length,grad:_RHUM_TYPE_GRAD[t]||'linear-gradient(135deg,#7A4010,#D08030)'})).filter(c=>c.n>0)
+    :[{key:'rouge',label:'Rouges',n:nRouge,emoji:'🔴'},{key:'blanc',label:'Blancs',n:nBlanc,emoji:'🟡'},{key:'rose',label:'Rosés',n:nRose,emoji:'🩷'},{key:'champagne',label:'Champagne',n:nChamp,emoji:'🥂'}];
 
   // Schéma clayettes
   let schemaHTML='';
@@ -5220,7 +5254,7 @@ function renderCavePage(){
           // highlight depth-aware : "pos|dN" = rangée exacte ; "pos" seul = AV uniquement (rétro-compat)
           const isHL=highlightPositions.some(h=>{if(h.includes('|d')){const[hp,hd]=h.split('|d');return hp===pos&&+hd===dv;}return h===pos&&dv===0;});
           if(w){
-            const bg=_bgMap[w.couleur]||'#888';
+            const bg=w.couleur==='rhum'?(_RHUM_TYPE_DOT_COLORS[w.rhumType]||_DOT_COLORS.rhum):(_bgMap[w.couleur]||'#888');
             const hlStyle=isHL?'box-shadow:0 0 0 3px #00FF66,0 0 12px #00FF66;z-index:2;position:relative;':'';
             rowInner+=`<div class="cave-bottle" onclick="showDetail(${w.id})" title="${(w.nom||'').slice(0,22)}" style="width:${sz}px;height:${sz}px;background:${bg};${hlStyle}${dimmed?'opacity:.6;':''}"></div>`;
           }else{
@@ -5261,21 +5295,30 @@ function renderCavePage(){
       <div style="font-size:11px;color:rgba(255,255,255,.5);">${cave.vrac?wines.length+' bouteille'+(wines.length!==1?'s':'')+' · capacité illimitée':wines.length+' bouteille'+(wines.length!==1?'s':'')+' sur '+total+' emplacements'}</div>
     </div>
 
-    <!-- ② STATS PAR COULEUR -->
-    <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.9px;margin-bottom:7px;">Par couleur</div>
+    <!-- ② STATS PAR COULEUR / PAR TYPE RHUM -->
+    <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.9px;margin-bottom:7px;">${isRhumCavePage?'Par type':'Par couleur'}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;">
-      ${colorCards.map(({key,label,n,emoji})=>`
-      <div class="color-card" style="background:${colGrad[key]};" onclick="invCaveFilter=activeCave;invFilter='${key}';invRegionFilter=null;invMaturiteFilter=null;_invNavFilters=true;nav('inv')">
-        <div style="display:flex;align-items:center;gap:7px;">
-          <div style="font-size:15px;line-height:1;">${emoji}</div>
-          <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:700;line-height:1;color:#fff;">${n}</div>
-          <div style="font-size:9px;color:rgba(255,255,255,.8);text-transform:uppercase;letter-spacing:.4px;font-weight:600;line-height:1.2;">${label}</div>
-        </div>
-      </div>`).join('')}
+      ${isRhumCavePage
+        ?colorCards.map(({key,label,n,grad})=>`
+        <div class="color-card" style="background:${grad};" onclick="invCaveFilter=activeCave;setInvFilter('rhum');setInvRhumType('${key}');_invNavFilters=true;nav('inv')">
+          <div style="display:flex;align-items:center;gap:7px;">
+            <div style="font-size:15px;line-height:1;">🥃</div>
+            <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:700;line-height:1;color:#fff;">${n}</div>
+            <div style="font-size:9px;color:rgba(255,255,255,.8);text-transform:uppercase;letter-spacing:.4px;font-weight:600;line-height:1.2;">${label}</div>
+          </div>
+        </div>`).join('')
+        :colorCards.map(({key,label,n,emoji})=>`
+        <div class="color-card" style="background:${colGrad[key]};" onclick="invCaveFilter=activeCave;invFilter='${key}';invRegionFilter=null;invMaturiteFilter=null;_invNavFilters=true;nav('inv')">
+          <div style="display:flex;align-items:center;gap:7px;">
+            <div style="font-size:15px;line-height:1;">${emoji}</div>
+            <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:700;line-height:1;color:#fff;">${n}</div>
+            <div style="font-size:9px;color:rgba(255,255,255,.8);text-transform:uppercase;letter-spacing:.4px;font-weight:600;line-height:1.2;">${label}</div>
+          </div>
+        </div>`).join('')}
     </div>
 
-    <!-- ③ RÉGIONS -->
-    ${regions.length?`
+    <!-- ③ RÉGIONS (uniquement caves vin) -->
+    ${!isRhumCavePage&&regions.length?`
     <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.9px;margin-bottom:7px;">Par région</div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:14px;">
       ${regions.map(([r,n])=>`
@@ -5829,11 +5872,10 @@ function renderSupercave(){
       <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">${totalRhum} bouteille${totalRhum>1?'s':''} · ${[...new Set(rhumBottles.map(w=>w.distillerie).filter(Boolean))].length} distillerie${[...new Set(rhumBottles.map(w=>w.distillerie).filter(Boolean))].length>1?'s':''}</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
         ${typeEntries.map(([t,n])=>`
-        <div onclick="setInvFilter('rhum');setInvRhumType('${t}');nav('inv');" style="background:var(--paper2);border-radius:12px;padding:11px 12px;border-left:3px solid #A0522D;cursor:pointer;transition:background .15s;"
+        <div onclick="setInvFilter('rhum');setInvRhumType('${t}');nav('inv');" style="background:var(--paper2);border-radius:8px;padding:5px 8px;border-left:3px solid #A0522D;cursor:pointer;transition:background .15s;display:flex;align-items:center;gap:8px;"
           onmouseover="this.style.background='var(--paper3)'" onmouseout="this.style.background='var(--paper2)'">
-          <div style="font-size:10px;font-weight:700;color:#7B3010;text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px;">${t}</div>
-          <div style="font-size:26px;font-weight:700;font-family:'Cormorant Garamond',serif;color:#A0522D;line-height:1.1;">${n}</div>
-          <div style="font-size:10px;color:var(--ink3);margin-top:3px;">${rhumBottles.filter(w=>(w.rhumType||'Autre')===t).slice(0,2).map(w=>w.nom.slice(0,20)).join('<br>')||'—'}</div>
+          <div style="font-size:18px;font-weight:700;font-family:'Cormorant Garamond',serif;color:#A0522D;line-height:1;flex-shrink:0;">${n}</div>
+          <div style="font-size:10px;font-weight:700;color:#7B3010;text-transform:uppercase;letter-spacing:.6px;">${t}</div>
         </div>`).join('')}
       </div>
       <button onclick="setInvFilter('rhum');nav('inv');" style="margin-top:10px;width:100%;background:transparent;border:1px solid #A0522D;border-radius:8px;padding:7px 10px;font-size:12px;color:#7B3010;cursor:pointer;">Voir tout l'inventaire rhum →</button>
