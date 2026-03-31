@@ -640,7 +640,7 @@ div[onclick], span[onclick]{
       <div id="db-status" style="font-size:10px;color:var(--ink4);padding:2px 6px;min-height:15px;margin-bottom:1px;"></div>
       <!-- Ligne 3 : statut sync en cours (dynamique, disparaît après confirmation) -->
       <div id="auth-sync" style="font-size:10px;color:var(--ink4);padding:2px 6px;min-height:16px;margin-bottom:6px;"></div>
-<div onclick="sbSignOut()" style="display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:9px;cursor:pointer;color:#dc2626;font-size:13px;font-weight:500;transition:background .15s;" onmouseover="this.style.background='rgba(220,38,38,.08)'" onmouseout="this.style.background=''" ontouchstart="this.style.background='rgba(220,38,38,.08)'" ontouchend="this.style.background=''">
+<div onclick="sbSignOut()" style="display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:9px;cursor:pointer;color:#dc2626;font-size:13px;font-weight:500;transition:background .15s;pointer-events:auto;position:relative;z-index:1;" onmouseover="this.style.background='rgba(220,38,38,.08)'" onmouseout="this.style.background=''" ontouchstart="this.style.background='rgba(220,38,38,.08)'" ontouchend="this.style.background=''">
         <span style="font-size:16px;width:22px;text-align:center;">🚪</span>Se déconnecter
       </div>
     </div>
@@ -1590,47 +1590,31 @@ document.addEventListener('visibilitychange',()=>{
 
 // — Déconnexion —
 let _signingOut=false;
-async function sbSignOut(){
-  if(_signingOut)return; // anti double-tap
-  if(isDemo){
-    isDemo=false;
-    // Effacer le token pour éviter la reconnexion automatique au refresh
-    localStorage.removeItem('cavavin_token');
-    _jwtToken='';
-    currentUser=null;
-    db={caves:[],wines:[],journal:[],nCave:0,nWine:0,statsAnnuelles:{}};
-    document.getElementById('sidebar-demo').style.display='none';
-    document.getElementById('sidebar')?.classList.remove('visible');
-    document.getElementById('sidebar-backdrop')?.classList.remove('visible');
-    showLoginWall();
-    setEnvMode('prod');
-    showToast('👋 Mode démo quitté');
-    return;
-  }
+function sbSignOut(){
+  if(_signingOut)return;
   _signingOut=true;
-  // Feedback visuel immédiat
-  const signoutEl=document.querySelector('[onclick="sbSignOut()"]');
-  if(signoutEl){signoutEl.style.opacity='.5';signoutEl.style.pointerEvents='none';}
-  // Flush sync — timeout 3s max pour ne pas bloquer
-  if(_pendingSync&&_jwtToken){
+
+  // ── 1. Traitements silencieux en arrière-plan (sans bloquer l'UI) ──
+  const tokenToFlush=_jwtToken;
+  if(_pendingSync&&tokenToFlush){
     clearTimeout(syncTimer);
-    try{await Promise.race([_doCloudSync(),new Promise(r=>setTimeout(r,3000))]);}catch(_){}
+    _doCloudSync().catch(()=>{});
   }
-  // Appel logout serveur — timeout 3s
-  try{if(_jwtToken)await Promise.race([
-    fetch(`${API_URL}/api/auth/logout`,{method:'POST',headers:authHeaders()}),
-    new Promise(r=>setTimeout(r,3000))
-  ]);}catch(_){}
-  _signingOut=false;
+  if(tokenToFlush){
+    fetch(`${API_URL}/api/auth/logout`,{method:'POST',headers:authHeaders()}).catch(()=>{});
+  }
+
+  // ── 2. Déconnexion immédiate ──
   localStorage.removeItem('cavavin_token');
   _jwtToken='';
-  currentUser=null;isAdmin=false;apiKey='';
+  currentUser=null;isAdmin=false;isDemo=false;apiKey='';
   db={caves:[],wines:[],journal:[],nCave:0,nWine:0,statsAnnuelles:{}};
+  document.getElementById('sidebar-demo')?.style&&(document.getElementById('sidebar-demo').style.display='none');
   document.getElementById('sidebar')?.classList.remove('visible');
   document.getElementById('sidebar-backdrop')?.classList.remove('visible');
-  showLoginWall();
   setEnvMode('prod');
-  showToast('👋 Déconnecté');
+  showLoginWall();
+  _signingOut=false;
 }
 
 // updateAuthStatus : rétro-compat — met à jour la ligne rôle si pas connecté, sinon sync
@@ -3121,7 +3105,7 @@ function editWine(id){
   const btn=document.getElementById('add-submit-btn');if(btn)btn.textContent='💾 Enregistrer les modifications';
   nav('add');
   // Titre et placement APRÈS nav() (nav() resetAddForm si editingWineId===null, mais editingWineId est déjà fixé)
-  const tb=document.getElementById('topbar-title');if(tb)tb.textContent='✏️ Modifier le vin';
+  const tb=document.getElementById('topbar-title');if(tb)tb.textContent=w.couleur==='rhum'?'✏️ Modifier le rhum':'✏️ Modifier le vin';
   // Montrer la preview de placement — permet de forcer une position pour les bouteilles supplémentaires
   const pp=document.getElementById('placement-preview');if(pp)pp.style.display='';
   renderPlacementPreview();
@@ -4132,7 +4116,8 @@ function syncFormToBottleType(){
   const rhumFields=document.getElementById('add-rhum-fields');
   if(rhumFields)rhumFields.style.display=isRhum?'block':'none';
   const submitBtn=document.getElementById('add-submit-btn');
-  if(submitBtn)submitBtn.textContent=isRhum?'🥃 Ajouter à la cave':'🍾 Ajouter à la cave';
+  if(submitBtn&&editingWineId===null)submitBtn.textContent=isRhum?'🥃 Ajouter à la cave':'🍾 Ajouter à la cave';
+  if(submitBtn&&editingWineId!==null)submitBtn.textContent=isRhum?'💾 Enregistrer le rhum':'💾 Enregistrer les modifications';
   const nomEl=document.getElementById('add-nom');
   if(nomEl)nomEl.placeholder=isRhum?'Diplomatico Reserva, Clément…':'Château Margaux';
   // Titre topbar selon type (sauf en mode édition)
@@ -5834,6 +5819,8 @@ function recoOpenAdd(i){
 
 
 function nav(page){
+  // Fermer les panneaux flottants pour éviter que leurs backdrops bloquent les clics sidebar
+  closeAccPanel();
   // Quitter la page add sans sauvegarder → reset mode édition
   if(currentPage==='add'&&page!=='add'&&editingWineId!==null){
     editingWineId=null;
