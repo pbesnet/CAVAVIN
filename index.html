@@ -1833,6 +1833,30 @@ function initDemoData(){
   },50);
 }
 
+// ── Validation / sanitisation des données d'apogée retournées par l'IA ────────
+// Élimine les hallucinations : fenêtre dans le passé, antérieure au millésime, durée absurde.
+// Retourne null/null si les valeurs sont irrémédiablement incohérentes → fallback heuristique.
+function _sanitizeApogee(millesime,apogeeDebut,apogeeFin,couleur){
+  if(!apogeeDebut||!apogeeFin)return{apogeeDebut:null,apogeeFin:null};
+  let d=+apogeeDebut,f=+apogeeFin;
+  const nowY=new Date().getFullYear();
+  const m=millesime?+millesime:nowY-3;
+  // Règle 1 — la fenêtre ne peut pas commencer avant le millésime
+  if(d<m){d=m;}
+  // Règle 2 — la fin doit être après le début
+  if(f<=d){f=d+2;}
+  // Règle 3 — pour un vin encore jeune (< 3 ans), l'apogée ne peut pas être déjà dépassée
+  const vinAge=nowY-m;
+  const maxGardeTypique={rose:5,blanc:20,champagne:25,rouge:40};
+  const maxG=maxGardeTypique[(couleur||'rouge').toLowerCase()]||40;
+  if(f>m+maxG){f=m+maxG;}// Cap réaliste selon couleur
+  // Règle 4 — si tout semble passé alors que le vin est très jeune (< 2 ans), invalider
+  if(vinAge<=2&&f<nowY){return{apogeeDebut:null,apogeeFin:null};}
+  // Règle 5 — fenêtre maximum de 50 ans quel que soit le cas
+  if(f>m+50)f=m+50;
+  return{apogeeDebut:d,apogeeFin:f};
+}
+
 // Heuristique locale pour estimer l'apogée (utilisée à l'init démo, sans appel API)
 function computeApogeeHeuristic(couleur,region,millesime){
   if(!millesime)return{apogeeDebut:null,apogeeFin:null};
@@ -3464,9 +3488,8 @@ function saveWine(){
     });
     dbSave();
     if(currentPage==='inv')renderInv();
-    // 2. Raffinage IA en arrière-plan — uniquement si une clé API est configurée
-    // (évite de consommer des invocations Edge Function sur chaque ajout sans clé)
-    if(apiKey){
+    // 2. Raffinage IA en arrière-plan — utilise le proxy backend (pas de clé directe requise)
+    if(_jwtToken&&currentUser){
       (async()=>{const n=await estimateMaturiteAI(idsNoApogee);if(n&&currentPage==='inv')renderInv();})();
     }
   }
@@ -4712,18 +4735,27 @@ async function estimateMaturiteAISingle(wine){
   if(wine.cepage)extras.push(`Cépage : ${wine.cepage}`);
   if(wine.region)extras.push(`Région : ${wine.region}`);
   const extrasStr=extras.length?`\nInformations complémentaires : ${extras.join(' · ')}` :'';
+  const nowYear=new Date().getFullYear();
+  const vinAge=wine.millesime?(nowYear-wine.millesime):'?';
   const prompt=
 `Tu es un expert en œnologie et en gestion de cave, avec une connaissance approfondie des millésimes mondiaux, des appellations, des styles de vinification et des courbes de vieillissement des vins.
 — CONTEXTE —
-Date d'évaluation : ${today}
+Date d'évaluation : ${today} (année ${nowYear})
 Vin : ${nomVin}
-Millésime : ${millesime}${extrasStr}
+Millésime : ${millesime}${wine.millesime?` (âge actuel : ${vinAge} an${vinAge!==1?'s':''})`:''} ${extrasStr}
 — MISSION —
 Détermine la maturité actuelle de ce vin en te basant sur :
 1. La courbe de vieillissement typique de cette appellation et de ce style de vin
 2. La réputation œnologique du millésime indiqué (qualité, précocité, longévité)
 3. Le positionnement dans le temps par rapport à la fenêtre de dégustation généralement admise
 4. Les caractéristiques du producteur si elles influencent la garde (élevage, extraction, rendements)
+— RÈGLES DE COHÉRENCE ABSOLUES (à respecter impérativement) —
+1. apogeeDebut >= millésime — la fenêtre ne peut pas commencer avant la vendange
+2. apogeeFin > apogeeDebut — la fenêtre a toujours une durée positive
+3. Un vin de ${millesime} a ${vinAge} an${vinAge!==1?'s':''}. S'il a moins de 3 ans, il NE PEUT PAS être "declin".
+4. Rosé et blanc léger de garde courte : fenêtre typique 1–5 ans. Un rosé de 1 an n'est PAS en déclin.
+5. Fenêtre maximale : blanc 15 ans, champagne 25 ans, rouge 40 ans, rosé 6 ans.
+6. La catégorie doit être COHÉRENTE avec apogeeDebut/apogeeFin et la date d'évaluation ${nowYear}.
 — CLASSIFICATION —
 Classe ce vin dans UNE SEULE des 4 catégories suivantes :
 🟣 maturation — Le vin est trop jeune. Ses composants (tanins, acidité, alcool) ne sont pas encore intégrés. Ouvrir maintenant serait prématuré.
@@ -4733,12 +4765,15 @@ Classe ce vin dans UNE SEULE des 4 catégories suivantes :
 — RÉPONSE —
 Réponds UNIQUEMENT en JSON strict, sans markdown ni texte autour :
 {"categorie":"maturation|debut_apogee|apogee|declin","apogeeDebut":YYYY,"apogeeFin":YYYY}
-Où apogeeDebut = première année de la fenêtre optimale (nombre entier), apogeeFin = dernière année.`;
+Où apogeeDebut = première année de la fenêtre optimale (entier), apogeeFin = dernière année (entier).`;
   try{
     const r=await apiCall([{role:'user',content:prompt}],250);
     const obj=JSON.parse(r.replace(/```json|```/g,'').trim());
     if(!obj.apogeeDebut||!obj.apogeeFin)return null;
-    return{apogeeDebut:+obj.apogeeDebut,apogeeFin:+obj.apogeeFin,categorie:obj.categorie||null};
+    // Sanitisation côté client : invalide les hallucinations résiduelles
+    const sane=_sanitizeApogee(wine.millesime,+obj.apogeeDebut,+obj.apogeeFin,wine.couleur);
+    if(!sane.apogeeDebut||!sane.apogeeFin)return null;
+    return{apogeeDebut:sane.apogeeDebut,apogeeFin:sane.apogeeFin,categorie:obj.categorie||null};
   }catch(e){
     console.warn('estimateMaturiteAISingle error wine',wine.id,e);
     return null;
@@ -5254,22 +5289,31 @@ JSON strict, aucun autre texte.`}
       document.getElementById('ai-status-txt').innerHTML=`✅ Rhum identifié !&nbsp;&nbsp;<span style="font-size:11px;color:var(--ink2);">${[info.distillerie,info.pays,info.rhumType].filter(Boolean).join(' · ')}</span>`;
       showToast('✅ Rhum identifié par l\'IA');
     } else {
-      // ── Prompt VIN (inchangé) ────────────────────────────────────────
+      // ── Prompt VIN ───────────────────────────────────────────────────
+      const _nowY=new Date().getFullYear();
       const r=await apiCall([{role:'user',content:[
         {type:'image',source:{type:'base64',media_type:bottleB64.split(';')[0].split(':')[1],data:bottleB64.split(',')[1]}},
         {type:'text',text:`Tu es expert en vins. Identifie ce vin depuis la photo d'étiquette et retourne UNIQUEMENT un JSON valide sans markdown :
 {"nom":"","producteur":"","couleur":"rouge|blanc|rose|champagne","millesime":null,"appellation":"","region":"Bordeaux|Bourgogne|Rhône|Loire|Alsace|Champagne|Provence|Languedoc|Corse|Autre","cepage":"","apogeeDebut":null,"apogeeFin":null,"prix":0,"scorePresse":null,"carafage":"non|30min|1h|2h+|null","biologique":false,"format":"75cl|37.5cl|magnum|double-magnum|jeroboam"}
 RÈGLES :
-- producteur : nom exact du château, domaine, maison ou coopérative tel qu'il apparaît sur l'étiquette — OBLIGATOIRE, jamais null ni vide. Si le nom n'est pas distinct du nom du vin, reprends le nom du vin. Ex: "Château Margaux", "Domaine Leroy", "Louis Roederer", "Maison Jadot".
-- prix : prix moyen bouteille en euros OBLIGATOIRE (jamais null, jamais 0). Estime au plus juste selon appellation, millésime, notoriété du producteur. Ex : Bourgogne village 2019 → ~22, Pomerol 2016 → ~55, Pétrus → ~3500.
-- apogeeDebut/apogeeFin : fenêtre de dégustation optimale selon appellation+millésime (ex rouge Bordeaux 2018 → 2024-2038).
+- producteur : nom exact du château, domaine, maison ou coopérative tel qu'il apparaît sur l'étiquette — OBLIGATOIRE, jamais null ni vide. Ex: "Château Margaux", "Domaine Leroy", "Louis Roederer".
+- prix : prix moyen bouteille en euros OBLIGATOIRE (jamais null, jamais 0). Ex : Bourgogne village 2019 → ~22, Pomerol 2016 → ~55, Pétrus → ~3500.
+- apogeeDebut/apogeeFin : fenêtre de dégustation optimale. RÈGLES ABSOLUES ANTI-HALLUCINATION :
+  1. apogeeDebut >= millesime (jamais avant la vendange)
+  2. apogeeFin > apogeeDebut
+  3. Nous sommes en ${_nowY} — si le vin a moins de 3 ans, apogeeFin NE PEUT PAS être dans le passé
+  4. Rosé et blanc léger : fenêtre courte (1 à 5 ans post-millésime max pour rosé, 2 à 12 ans pour blanc)
+  5. Si millésime inconnu ou très récent (${_nowY-1} ou ${_nowY}), préfère null plutôt qu'une estimation incohérente
+  Ex : rosé Provence 2023 → 2024-2027 ; rouge Bordeaux 2018 → 2025-2040 ; blanc Bourgogne 2020 → 2024-2032
 - null pour les autres champs optionnels si vraiment inconnu. JSON strict, aucun autre texte.`}
       ]}],800);
       const info=JSON.parse(r.replace(/```json|```/g,'').trim());
       const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null)el.value=v;};
       _aiFilledPrix=info.prix||null;
-      _aiApogeeDebut=info.apogeeDebut||null;
-      _aiApogeeFin=info.apogeeFin||null;
+      // Sanitiser l'apogée retournée par la photo avant de l'utiliser
+      const _photoSane=_sanitizeApogee(info.millesime,info.apogeeDebut,info.apogeeFin,info.couleur);
+      _aiApogeeDebut=_photoSane.apogeeDebut||null;
+      _aiApogeeFin=_photoSane.apogeeFin||null;
       if(!_aiApogeeDebut||!_aiApogeeFin){
         const est=computeApogeeHeuristic(info.couleur||'rouge',info.region||'',info.millesime);
         if(est.apogeeDebut&&est.apogeeFin){_aiApogeeDebut=est.apogeeDebut;_aiApogeeFin=est.apogeeFin;}
