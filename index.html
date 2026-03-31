@@ -2990,11 +2990,19 @@ function parsePos(pos){
 // Retourne l'emplacement lisible : pour le rhum = nom de clayette ; pour le vin = code position
 function _winePos(w){
   if(!w.position)return '—';
-  if(w.couleur!=='rhum')return w.position;
+  if(w.couleur==='rhum'){
+    const pp=parsePos(w.position);
+    const cv=getCave(w.caveId);
+    if(!pp||!cv)return w.position;
+    return cv.clayettes[pp.ci]?.label||('Clayette '+(pp.ci+1));
+  }
+  // Pour les caves double-profondeur, indiquer AV/AR
   const pp=parsePos(w.position);
   const cv=getCave(w.caveId);
-  if(!pp||!cv)return w.position;
-  return cv.clayettes[pp.ci]?.label||('Clayette '+(pp.ci+1));
+  if(pp&&cv&&(cv.clayettes[pp.ci]?.depth||1)===2){
+    return `${w.position} ${(w.depth||0)===0?'AV':'AR'}`;
+  }
+  return w.position;
 }
 
 // ── CONTRAINTE PHYSIQUE ────────────────────────────────────────
@@ -5101,14 +5109,14 @@ function renderInv(){
       </div>
     </div>`;
     const rows=caveWines.map(w=>`<div class="wine-card" onclick="showDetail(${w.id})">
-      <div class="wc-dot ${w.couleur}"></div>
+      <div class="wc-dot ${w.couleur}"${w.couleur==='rhum'&&w.rhumType?` style="background:${_RHUM_TYPE_DOT_COLORS[w.rhumType]||_DOT_COLORS.rhum}"`:''}></div>
       <div class="wc-info">
         <div class="wc-name" style="display:flex;align-items:center;gap:5px;">${w.nom||'—'}${w.couleur==='rhum'?'':(maturiteDot(w))}</div>
         <div class="wc-meta">${w.couleur==='rhum'?[w.rhumType,w.distillerie,w.pays].filter(Boolean).join(' · '):[w.millesime,w.region,w.appellation].filter(Boolean).join(' · ')}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;">
         <div style="font-size:12px;font-weight:700;color:var(--ink);white-space:nowrap;">${w.prix?`${w.prixIA?'<span title="Prix estimé par IA" style="color:var(--ink3)">~</span>':''}${w.prix} €`:'<span style="color:var(--ink3);font-weight:400;font-size:11px;">— €</span>'}</div>
-        <div style="font-size:11px;background:var(--paper2);padding:3px 8px;border-radius:99px;color:var(--ink2);font-weight:600;">${(()=>{if(w.couleur!=='rhum'||!w.position)return w.position||'—';const _pp=parsePos(w.position);const _cv=getCave(w.caveId);return _pp&&_cv?(_cv.clayettes[_pp.ci]?.label||('Clayette '+(_pp.ci+1))):w.position||'—';})()}</div>
+        <div style="font-size:11px;background:var(--paper2);padding:3px 8px;border-radius:99px;color:var(--ink2);font-weight:600;">${_winePos(w)}</div>
       </div>
     </div>`).join('');
     return header+rows;
@@ -5168,7 +5176,7 @@ function showDetail(id,fromChat=false){
         </div>
       </div>
     </div>
-    ${fromInv?buildMiniCaveSchema(w,0):''}
+    ${buildMiniCaveSchema(w,0)}
     ${w.couleur==='rhum'?`
       ${w.distillerie?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🏭 Distillerie</span><span style="font-size:13px;font-weight:500;">${w.distillerie}</span></div>`:''}
       ${w.pays?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🌍 Pays</span><span style="font-size:13px;font-weight:500;">${w.pays}</span></div>`:''}
@@ -6187,8 +6195,8 @@ async function refreshRecoWE(auto=false){
     const wVin=db.wines.filter(w=>w.couleur!=='rhum'&&w.millesime);
     const candidats=wVin.map(w=>({...w,mat:maturiteStatus(w)})).sort((a,b)=>{const o={apogee:0,debut_apogee:1,declin:2,maturation:3};return(o[a.mat]??4)-(o[b.mat]??4);}).slice(0,30);
     const rhumsCtx=db.wines.filter(w=>w.couleur==='rhum').slice(0,20);
-    const vinCtx=candidats.map(w=>`[ID:${w.id}] ${w.nom} ${w.millesime}${w.region?', '+w.region:''}${w.appellation?', '+w.appellation:''}${w.producteur?' ('+w.producteur+')':''} | ${w.mat} | ${w.prix||0}€`).join('\n');
-    const rhumCtx=rhumsCtx.map(r=>`[ID:${r.id}] ${r.nom}${r.millesime?' '+r.millesime:''}${r.distillerie?', '+r.distillerie:''}${r.pays?', '+r.pays:''}${r.degre?', '+r.degre+'°':''}`).join('\n');
+    const vinCtx=candidats.map(w=>`[ID:${w.id}] ${w.nom} ${w.millesime}${w.region?', '+w.region:''}${w.appellation?', '+w.appellation:''}${w.producteur?' ('+w.producteur+')':''} | pos:${_winePos(w)} | ${w.mat} | ${w.prix||0}€`).join('\n');
+    const rhumCtx=rhumsCtx.map(r=>`[ID:${r.id}] ${r.nom}${r.millesime?' '+r.millesime:''}${r.distillerie?', '+r.distillerie:''}${r.pays?', '+r.pays:''}${r.degre?', '+r.degre+'°':''} | pos:${_winePos(r)}`).join('\n');
     const prompt=`Tu es un expert sommelier et barman créatif. Weekend du ${wkd.label} à ${locationName} :
 MÉTÉO : ${wxSummary}
 Température moyenne ${avgTemp}°C${isRainy?' — temps pluvieux et cosy':isWarm?' — temps chaud et estival':isCold?' — temps froid hivernal':' — météo douce'}
@@ -6486,7 +6494,7 @@ function renderSupercave(){
         const cfg=MATURITE_CFG[st];
         const bucket=wines.filter(w=>maturiteStatus(w)===st);
         const n=bucket.length;
-        return`<div onclick="setInvMaturite('${st}');nav('inv');" style="background:var(--paper2);border-radius:12px;padding:11px 12px;border-left:3px solid ${cfg.color};cursor:pointer;transition:background .15s;"
+        return`<div onclick="invMaturiteFilter='${st}';invFilter='tous';invCaveFilter=null;nav('inv');" style="background:var(--paper2);border-radius:12px;padding:11px 12px;border-left:3px solid ${cfg.color};cursor:pointer;transition:background .15s;"
           onmouseover="this.style.background='var(--paper3)'" onmouseout="this.style.background='var(--paper2)'">
           <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
             <span style="width:7px;height:7px;border-radius:50%;background:${cfg.color};display:inline-block;flex-shrink:0;"></span>
@@ -6660,18 +6668,20 @@ function renderSupercave(){
   <!-- TOP 10 APOGÉE → DÉCLIN IMMINANT (≤12 mois) -->
   ${(()=>{
     const nowY=new Date().getFullYear();
-    const urgents=wines.filter(w=>maturiteStatus(w)==='apogee'&&w.apogeeFin&&w.apogeeFin<=nowY+1)
+    // J+3 mois : on calcule la date dans 3 mois, un vin est "imminent" si son apogée
+    // se termine avant cette date (Jan 1 de apogeeFin+1 <= today+3 mois)
+    const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()+3);
+    const urgents=wines.filter(w=>maturiteStatus(w)==='apogee'&&w.apogeeFin&&new Date(w.apogeeFin+1,0,1)<=cutoff)
       .sort((a,b)=>(a.apogeeFin||9999)-(b.apogeeFin||9999))
       .slice(0,10);
     if(!urgents.length)return'';
     const cfgA=MATURITE_CFG['apogee'];
-    const cfgD=MATURITE_CFG['declin'];
     return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;">
-      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;cursor:pointer;" onclick="invMaturiteFilter='apogee';invFilter='tous';invCaveFilter=null;nav('inv');">
         <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;">⏳ Apogée — déclin imminent</div>
         <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:${cfgA.color}22;color:${cfgA.color};">à boire vite</div>
       </div>
-      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">Vins en pleine apogée passant en déclin d'ici fin ${nowY+1}</div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">Passent en déclin dans moins de 3 mois · <span style="color:${cfgA.color};cursor:pointer;" onclick="event.stopPropagation();invMaturiteFilter='apogee';invFilter='tous';invCaveFilter=null;nav('inv');">Voir dans l'inventaire →</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
         ${urgents.map(w=>{
           const finDansNMois=w.apogeeFin===nowY?`cette année`:w.apogeeFin===nowY+1?`en ${w.apogeeFin}`:`${w.apogeeFin}`;
@@ -6696,10 +6706,11 @@ function renderSupercave(){
     const cfg=MATURITE_CFG['declin'];
     const totalDec=wines.filter(w=>maturiteStatus(w)==='declin').length;
     return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;">
-      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;cursor:pointer;" onclick="invMaturiteFilter='declin';invFilter='tous';invCaveFilter=null;nav('inv');">
         <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;">🍂 Vins en déclin</div>
         <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:${cfg.color}22;color:${cfg.color};">${totalDec} au total</div>
       </div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;"><span style="color:${cfg.color};cursor:pointer;" onclick="event.stopPropagation();invMaturiteFilter='declin';invFilter='tous';invCaveFilter=null;nav('inv');">Voir tous dans l'inventaire →</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
         ${declin.map(w=>{
           const ans=nowY-(w.apogeeFin||nowY);
@@ -6711,6 +6722,37 @@ function renderSupercave(){
           </div>`;
         }).join('')}
       </div>
+    </div>`;
+  })()}
+
+  <!-- TOP 10 LES PLUS CHÈRES -->
+  ${(()=>{
+    const top10=db.wines.filter(w=>w.prix>0).sort((a,b)=>(b.prix||0)-(a.prix||0)).slice(0,10);
+    if(!top10.length)return'';
+    const totalVal=top10.reduce((s,w)=>s+(w.prix||0),0);
+    return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;margin-bottom:3px;">💰 Top 10 — Les plus précieuses</div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:12px;">Vins &amp; rhums · toutes caves · valeur cumulée <b>${totalVal.toLocaleString('fr-FR')} €</b></div>
+      ${top10.map((w,i)=>{
+        const cave=db.caves.find(c=>c.id===w.caveId);
+        const isRhum=w.couleur==='rhum';
+        const dotBg=isRhum?(_RHUM_TYPE_DOT_COLORS[w.rhumType]||_DOT_COLORS.rhum):(_DOT_COLORS[w.couleur]||'#888');
+        const sub=[isRhum?w.rhumType:w.millesime,isRhum?w.distillerie:w.appellation,cave?.name].filter(Boolean).join(' · ');
+        const st=!isRhum?maturiteStatus(w):null;
+        const cfg=st?MATURITE_CFG[st]:null;
+        return`<div onclick="showDetail(${w.id})" style="display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer;" onmouseover="this.style.background='var(--paper2)';this.style.marginLeft='-14px';this.style.paddingLeft='14px';this.style.marginRight='-14px';this.style.paddingRight='14px'" onmouseout="this.style.background='';this.style.marginLeft='';this.style.paddingLeft='';this.style.marginRight='';this.style.paddingRight=''">
+          <div style="width:20px;font-size:12px;font-weight:800;color:${i===0?'#C0991A':i===1?'#888':i===2?'#A0522D':'var(--ink3)'};text-align:right;flex-shrink:0;">${i+1}</div>
+          <span style="width:9px;height:9px;border-radius:50%;background:${dotBg};flex-shrink:0;display:inline-block;"></span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${w.nom}</div>
+            <div style="font-size:10px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sub}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;">
+            <div style="font-size:13px;font-weight:700;color:var(--ink);">${w.prix.toLocaleString('fr-FR')} €</div>
+            ${cfg?`<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:6px;background:${cfg.color}22;color:${cfg.color};">${cfg.label}</span>`:''}
+          </div>
+        </div>`;
+      }).join('')}
     </div>`;
   })()}
 
@@ -7164,7 +7206,7 @@ async function doTransferReco(){
       const ageStr=age!==null?`${age}ans`:'âge inconnu';
       const lieu=cave.lieu||'inconnu';
       const apogeeStr=w.apogeeDebut&&w.apogeeFin?`apogée:${w.apogeeDebut}-${w.apogeeFin}`:'apogée:inconnue';
-      winesCtx.push(`id=${w.id} | "${w.nom}" ${w.millesime||'?'} | ${w.couleur} | ${w.region||'région?'} | âge:${ageStr} | ${apogeeStr} | cave:"${cave.name}" | lieu:${lieu}`);
+      winesCtx.push(`id=${w.id} | "${w.nom}" ${w.millesime||'?'} | ${w.couleur} | ${w.region||'région?'} | âge:${ageStr} | pos:${_winePos(w)} | ${apogeeStr} | cave:"${cave.name}" | lieu:${lieu}`);
     });
   });
   if(!winesCtx.length){
