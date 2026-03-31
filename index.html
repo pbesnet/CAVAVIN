@@ -4364,6 +4364,10 @@ function couleurPastille(couleur){
   return`<span title="${c.title}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:${c.bg};color:#fff;font-size:8px;font-weight:800;flex-shrink:0;letter-spacing:0;">${c.label}</span>`;
 }
 
+// ── Wizard millésimes — déclaré ici (avant initBackend) pour éviter TDZ ──
+let _milWizActive=false;
+let _milWizSkipped=new Set();
+
 // ═══════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════
@@ -4919,9 +4923,7 @@ function removeWineFromAccord(id){
 let bottleB64=null;
 let selColor=null;
 let _aiFilledPrix=null;    // prix estimé par IA lors du dernier doAiFill
-// ── Wizard millésimes manquants ──
-let _milWizActive=false;
-let _milWizSkipped=new Set(); // IDs temporairement passés dans le wizard
+// ── Wizard millésimes manquants (déclarations déplacées avant initBackend) ──
 let _aiApogeeDebut=null;   // apogée fournie par l'IA (doAiFill) — transmise à saveWine
 let _aiApogeeFin=null;
 let _forcedPosition=null;      // position forcée (mode ÉDITION uniquement)
