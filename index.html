@@ -1680,35 +1680,35 @@ function updateDbStatus(state){
 
 /* Structure des caves démo — 5 caves variées */
 const DEMO_CAVES_CONFIG=[
-  // Cave 1 : grande cave de vieillissement — 3 clayettes, multi-rangs, multi-colonnes
+  // Cave 1 : grande cave de vieillissement — 3 clayettes dont une double profondeur
   {name:'Lyon — Grande Cave',description:'Cave principale de vieillissement — Croix-Rousse',lieu:'Lyon',type:'vieillissement',
    clayettes:[
-     {rows:10,cols:12,label:'Bordeaux & Grands Rouges'},
-     {rows:8, cols:10,label:'Bourgogne & Rhône'},
-     {rows:5, cols:8, label:'Blancs & Champagnes'},
+     {rows:10,cols:12,depth:2,label:'Bordeaux & Grands Rouges'},  // double rangée AV/AR
+     {rows:8, cols:10,depth:1,label:'Bourgogne & Rhône'},
+     {rows:5, cols:8, depth:1,label:'Blancs & Champagnes'},
    ]},
   // Cave 2 : cave de service — 2 clayettes
   {name:'Bordeaux — Cave Service',description:'Cave de service quotidien — rotation rapide',lieu:'Bordeaux',type:'service',
    clayettes:[
-     {rows:4,cols:12,label:'Service principal'},
-     {rows:3,cols:8, label:'Apéritifs & Rosés'},
+     {rows:4,cols:12,depth:1,label:'Service principal'},
+     {rows:3,cols:8, depth:1,label:'Apéritifs & Rosés'},
    ]},
   // Cave 3 : petite cave simple — 1 clayette
   {name:'Paris — Cave Appartement',description:'Petite cave de service — Marais',lieu:'Paris',type:'service',
    clayettes:[
-     {rows:3,cols:6,label:'Sélection semaine'},
+     {rows:3,cols:6,depth:1,label:'Sélection semaine'},
    ]},
-  // Cave 4 : cave secondaire — 2 clayettes
+  // Cave 4 : cave secondaire — 2 clayettes dont une double profondeur
   {name:'Strasbourg — Cave Garde',description:'Cave de garde secondaire — Orangerie',lieu:'Strasbourg',type:'vieillissement',
    clayettes:[
-     {rows:6,cols:8,label:'Vieillissement A'},
-     {rows:4,cols:6,label:'Vieillissement B'},
+     {rows:6,cols:8,depth:2,label:'Vieillissement A'},  // double rangée AV/AR
+     {rows:4,cols:6,depth:1,label:'Vieillissement B'},
    ]},
   // Cave 5 : cave à rhum — isRhum
   {name:'Nantes — Cave à Rhum',description:'Collection rhums agricoles & industriels',lieu:'Nantes',type:'service',isRhum:true,
    clayettes:[
-     {rows:4,cols:8,label:'Agricoles & Millésimés'},
-     {rows:3,cols:6,label:'Industriels & Blends'},
+     {rows:4,cols:8,depth:1,label:'Agricoles & Millésimés'},
+     {rows:3,cols:6,depth:1,label:'Industriels & Blends'},
    ]},
 ];
 const DEMO_RHUM_CATALOG=[
@@ -1874,7 +1874,8 @@ function _initDemoDataSync(){
     db.caves.push({
       id,name:cfg.name,description:cfg.description,
       lieu:cfg.lieu,type:cfg.type,
-      clayettes:cfg.clayettes.map(cl=>({rows:cl.rows,cols:cl.cols})),
+      isRhum:cfg.isRhum||false,
+      clayettes:cfg.clayettes.map(cl=>({rows:cl.rows,cols:cl.cols,depth:cl.depth||1,label:cl.label||''})),
       photo:null,
       createdAt:new Date(Date.now()-Math.random()*2e9).toISOString()
     });
@@ -1884,38 +1885,43 @@ function _initDemoDataSync(){
   let totalAdded=0;
   db.caves.filter(c=>!c.isRhum).forEach(cave=>{
     cave.clayettes.forEach((cl,ci)=>{
-      const totalCells=cl.rows*cl.cols;
+      const clDepth=cl.depth||1;
+      const totalCells=cl.rows*cl.cols*clDepth;
       const target=Math.round(totalCells*0.80);
       let placed=0;
       outer: for(let r=cl.rows-1;r>=0;r--){
         for(let c=0;c<cl.cols;c++){
-          if(placed>=target)break outer;
-          const pos=mkPos(ci,r,c);
-          const src=rnd(DEMO_CATALOG);
-          const nom=rnd(src.noms);
-          const producteur=rnd(src.producteurs||src.noms);
-          const millesime=rnd(DEMO_MILLESIMES);
-          const appellation=rnd(src.appellations);
-          const cepage=rnd(src.cepages);
-          const prix=rnd(DEMO_PRIX[src.couleur]||DEMO_PRIX.rouge);
-          const note=src.notes?rnd(src.notes):null;
-          const photo=generateDemoWinePhoto(nom,src.couleur,millesime);
-          const apogee=computeApogeeHeuristic(src.couleur,src.region,millesime);
-          db.wines.push({
-            id:db.nWine++,
-            nom,couleur:src.couleur,region:src.region,
-            appellation,millesime,cepage,
-            producteur,
-            prix,prixIA:false,
-            notes:note,
-            photo,
-            apogeeDebut:apogee.apogeeDebut,
-            apogeeFin:apogee.apogeeFin,
-            maturiteUpdatedAt:new Date().toISOString(),
-            caveId:cave.id,position:pos,
-            addedAt:new Date(Date.now()-Math.random()*5e10).toISOString()
-          });
-          placed++;totalAdded++;
+          // Pour depth=2 : remplir AV (dv=0) puis AR (dv=1) pour chaque emplacement
+          for(let dv=0;dv<clDepth;dv++){
+            if(placed>=target)break outer;
+            const pos=mkPos(ci,r,c);
+            const src=rnd(DEMO_CATALOG);
+            const nom=rnd(src.noms);
+            const producteur=rnd(src.producteurs||src.noms);
+            const millesime=rnd(DEMO_MILLESIMES);
+            const appellation=rnd(src.appellations);
+            const cepage=rnd(src.cepages);
+            const prix=rnd(DEMO_PRIX[src.couleur]||DEMO_PRIX.rouge);
+            const note=src.notes?rnd(src.notes):null;
+            const photo=generateDemoWinePhoto(nom,src.couleur,millesime);
+            const apogee=computeApogeeHeuristic(src.couleur,src.region,millesime);
+            db.wines.push({
+              id:db.nWine++,
+              nom,couleur:src.couleur,region:src.region,
+              appellation,millesime,cepage,
+              producteur,
+              prix,prixIA:false,
+              notes:note,
+              photo,
+              apogeeDebut:apogee.apogeeDebut,
+              apogeeFin:apogee.apogeeFin,
+              maturiteUpdatedAt:new Date().toISOString(),
+              caveId:cave.id,position:pos,
+              depth:clDepth===2?dv:undefined,
+              addedAt:new Date(Date.now()-Math.random()*5e10).toISOString()
+            });
+            placed++;totalAdded++;
+          }
         }
       }
     });
@@ -1963,15 +1969,22 @@ function _initDemoDataSync(){
     });
   });
 
-  // 4. Stats démo réalistes (2 dernières années)
+  // 4. Stats démo réalistes et randomisées (2 dernières années)
+  const _rs=(base,v)=>Math.max(0,Math.round(base+(Math.random()-.5)*2*v));
   const curY=new Date().getFullYear();
   const prevY=curY-1;
   const demoStats={};
-  demoStats[String(prevY)]={'01':{e:18,s:6},'02':{e:12,s:8},'03':{e:24,s:10},'04':{e:9,s:7},'05':{e:15,s:12},'06':{e:6,s:14},'07':{e:4,s:11},'08':{e:3,s:9},'09':{e:14,s:5},'10':{e:22,s:8},'11':{e:19,s:10},'12':{e:28,s:14}};
+  // Année précédente : 12 mois complets
+  const _prevE=[18,12,24,9,15,6,4,3,14,22,19,28];
+  const _prevS=[6,8,10,7,12,14,11,9,5,8,10,14];
+  demoStats[String(prevY)]={};
+  for(let m=1;m<=12;m++){const ms=String(m).padStart(2,'0');demoStats[String(prevY)][ms]={e:_rs(_prevE[m-1],5),s:_rs(_prevS[m-1],3)};}
+  // Année courante : mois 1 → mois actuel
   const curM=new Date().getMonth()+1;
+  const _curE=[16,10,20,8,13,5,4,2,17,21,18,25];
+  const _curS=[5,7,9,6,11,13,10,8,4,7,9,12];
   demoStats[String(curY)]={};
-  const sE=[16,10,20,8,13,5,4,2,17,21,18,25];const sS=[5,7,9,6,11,13,10,8,4,7,9,12];
-  for(let m=1;m<=curM;m++){const ms=String(m).padStart(2,'0');demoStats[String(curY)][ms]={e:sE[m-1],s:m<curM?sS[m-1]:Math.floor(sS[m-1]*0.4)};}
+  for(let m=1;m<=curM;m++){const ms=String(m).padStart(2,'0');demoStats[String(curY)][ms]={e:_rs(_curE[m-1],4),s:m<curM?_rs(_curS[m-1],3):Math.floor(_rs(_curS[m-1],2)*0.4)};}
   db.statsAnnuelles=demoStats;
   try{localStorage.setItem('cavavin_stats_bak',JSON.stringify(demoStats));}catch(_){}
 
@@ -6180,30 +6193,43 @@ function renderSupercave(){
     </div>
   </div>
 
-  <!-- VIGNETTES CAVES (vin uniquement, sans rhum) -->
+  <!-- VIGNETTES CAVES (vin + rhum) -->
   ${(()=>{
-    const display=[...caveRows].filter(({cave:c})=>!c.isRhum).sort((a,b)=>(b.fill??-1)-(a.fill??-1));
-    if(!display.length)return'';
+    const displayVin=[...caveRows].filter(({cave:c})=>!c.isRhum).sort((a,b)=>(b.fill??-1)-(a.fill??-1));
+    const displayRhum=[...caveRows].filter(({cave:c})=>!!c.isRhum).sort((a,b)=>(b.fill??-1)-(a.fill??-1));
+    const allDisplay=[...displayVin,...displayRhum];
+    if(!allDisplay.length)return'';
+    const cardHtml=({cave:c,n,slots,fill})=>{
+      const isRhum=!!c.isRhum;
+      const accentColor=isRhum?'var(--champ-m)':'var(--rouge-m)';
+      const numColor=isRhum?'var(--champ)':'var(--rouge)';
+      const barColor=isRhum
+        ?(fill>=90?'#E65100':fill>=70?'#FF9800':'#C49010')
+        :(fill>=90?'#E53935':fill>=70?'#FF9800':'#4CAF50');
+      const textColor=isRhum
+        ?(fill>=90?'#E65100':fill>=70?'#E65100':'var(--ink3)')
+        :(fill>=90?'#E53935':fill>=70?'#E65100':'var(--ink3)');
+      return`<div onclick="activeCave=${c.id};nav('cave')" style="flex-shrink:0;width:120px;background:var(--white);border-radius:14px;padding:12px 12px 10px;box-shadow:var(--shadow-s);cursor:pointer;border:1.5px solid transparent;transition:border-color .15s;"
+           onmouseover="this.style.borderColor='${accentColor}'" onmouseout="this.style.borderColor='transparent'"
+           ontouchstart="this.style.borderColor='${accentColor}'" ontouchend="this.style.borderColor='transparent'">
+        <div style="font-size:11px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:${c.lieu?'1':'6'}px;">${isRhum?'🥃 ':''} ${c.name}</div>
+        ${c.lieu?`<div style="font-size:9px;color:var(--ink4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px;">${c.lieu}</div>`:''}
+        <div style="display:flex;align-items:baseline;gap:3px;margin-bottom:5px;">
+          <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:700;color:${numColor};line-height:1;">${n}</span>
+          ${!c.vrac&&slots?`<span style="font-size:10px;color:var(--ink3);">/ ${slots}</span>`:''}
+        </div>
+        ${!c.vrac&&slots?`
+        <div style="height:5px;background:var(--paper3);border-radius:99px;overflow:hidden;margin-bottom:3px;">
+          <div style="height:100%;width:${fill}%;background:${barColor};border-radius:99px;"></div>
+        </div>
+        <div style="font-size:9px;color:${textColor};">${fill}% remplie</div>`
+        :`<div style="font-size:9px;color:var(--ink3);">vrac · illimité</div>`}
+      </div>`;
+    };
     return`<div style="margin-bottom:20px;">
       <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.9px;margin-bottom:8px;">Mes caves</div>
       <div style="display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px;">
-        ${display.map(({cave:c,n,slots,fill})=>`
-        <div onclick="activeCave=${c.id};nav('cave')" style="flex-shrink:0;width:120px;background:var(--white);border-radius:14px;padding:12px 12px 10px;box-shadow:var(--shadow-s);cursor:pointer;border:1.5px solid transparent;transition:border-color .15s;"
-             onmouseover="this.style.borderColor='var(--rouge-m)'" onmouseout="this.style.borderColor='transparent'"
-             ontouchstart="this.style.borderColor='var(--rouge-m)'" ontouchend="this.style.borderColor='transparent'">
-          <div style="font-size:11px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:${c.lieu?'1':'6'}px;">${c.name}</div>
-          ${c.lieu?`<div style="font-size:9px;color:var(--ink4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px;">${c.lieu}</div>`:''}
-          <div style="display:flex;align-items:baseline;gap:3px;margin-bottom:5px;">
-            <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:700;color:var(--rouge);line-height:1;">${n}</span>
-            ${!c.vrac&&slots?`<span style="font-size:10px;color:var(--ink3);">/ ${slots}</span>`:''}
-          </div>
-          ${!c.vrac&&slots?`
-          <div style="height:5px;background:var(--paper3);border-radius:99px;overflow:hidden;margin-bottom:3px;">
-            <div style="height:100%;width:${fill}%;background:${fill>=90?'#E53935':fill>=70?'#FF9800':'#4CAF50'};border-radius:99px;"></div>
-          </div>
-          <div style="font-size:9px;color:${fill>=90?'#E53935':fill>=70?'#E65100':'var(--ink3)'};">${fill}% remplie</div>`
-          :`<div style="font-size:9px;color:var(--ink3);">vrac · illimité</div>`}
-        </div>`).join('')}
+        ${allDisplay.map(cardHtml).join('')}
       </div>
     </div>`;
   })()}
