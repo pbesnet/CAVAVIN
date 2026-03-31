@@ -1030,11 +1030,17 @@ div[onclick], span[onclick]{
 <!-- Détail bouteille -->
 <div id="ov-detail" class="overlay" style="align-items:flex-end;" onclick="closeOv('ov-detail')">
   <div class="modal" style="width:100%;max-width:600px;max-height:calc(92vh - env(safe-area-inset-top,44px));display:flex;flex-direction:column;padding:0;overflow:hidden;border-radius:20px 20px 0 0;margin-bottom:0;" onclick="event.stopPropagation()">
-    <!-- Header fixe : barre de drag + croix -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;flex-shrink:0;border-bottom:1px solid var(--border);">
-      <div style="width:34px;"></div>
-      <div style="width:36px;height:4px;border-radius:2px;background:var(--border);"></div>
-      <button onclick="closeOv('ov-detail')" style="background:rgba(0,0,0,.06);border:none;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink2);touch-action:manipulation;-webkit-tap-highlight-color:transparent;flex-shrink:0;">✕</button>
+    <!-- Header fixe : navigation ‹ position › + croix -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px 6px;flex-shrink:0;border-bottom:1px solid var(--border);gap:4px;">
+      <button id="detail-prev-btn" onclick="detailNavPrev()" title="Bouteille précédente" style="background:rgba(0,0,0,.06);border:none;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink2);touch-action:manipulation;-webkit-tap-highlight-color:transparent;flex-shrink:0;visibility:hidden;">‹</button>
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;">
+        <div style="width:36px;height:4px;border-radius:2px;background:var(--border);"></div>
+        <div id="detail-nav-indicator" style="font-size:10px;color:var(--ink4);margin-top:2px;"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+        <button id="detail-next-btn" onclick="detailNavNext()" title="Bouteille suivante" style="background:rgba(0,0,0,.06);border:none;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink2);touch-action:manipulation;-webkit-tap-highlight-color:transparent;visibility:hidden;">›</button>
+        <button onclick="closeOv('ov-detail')" style="background:rgba(0,0,0,.06);border:none;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink2);touch-action:manipulation;-webkit-tap-highlight-color:transparent;flex-shrink:0;">✕</button>
+      </div>
     </div>
     <!-- Contenu scrollable indépendant -->
     <div id="detail-content" style="flex:1;overflow-y:auto;padding:14px 14px 8px;-webkit-overflow-scrolling:touch;"></div>
@@ -3967,23 +3973,46 @@ function addTyp(){
   document.getElementById('chat-msgs').appendChild(d);d.scrollIntoView({behavior:'smooth'});return d;
 }
 
+// ── Contexte structuré des caves pour les agents IA ──────────────────────────
+// Décrit la structure physique + liste de vins avec tous les champs utiles.
+// Utilisé par : sommelier, accords, transfert, WE reco.
+function buildCaveContextForAI(){
+  const nowYear=new Date().getFullYear();
+  const _ml={maturation:'🟢 maturation',debut_apogee:'🟡 début apogée',apogee:'🟠 apogée',declin:'🔴 déclin'};
+  return db.caves.map(c=>{
+    const ws=winesOfCave(c.id);
+    // Description de la structure physique
+    const typeLabel=c.isRhum?'rhum':(c.type||'vieillissement');
+    const lieuLabel=c.lieu?` · lieu:"${c.lieu}"`:'';
+    const vracLabel=c.vrac?'stockage vrac (illimité)':'';
+    const structLabel=c.vrac?vracLabel:c.clayettes.map((cl,ci)=>{
+      const d=cl.depth||1;
+      const label=cl.label||`Clayette ${ci+1}`;
+      return `${label}(${cl.rows}×${cl.cols}${d===2?' double-rangée AV+AR':''})`;
+    }).join(', ');
+    const header=`Cave "${c.name}" [type:${typeLabel}${lieuLabel} · structure:${structLabel} · ${ws.length} bouteilles]`;
+    // Liste des vins
+    const lines=ws.slice(0,60).map(w=>{
+      const st=maturiteStatus(w);
+      const ln=(db.journal||[]).filter(j=>j.wineId===w.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
+      const noteStr=ln?` | dég:${ln.note}★${ln.cmt?' "'+ln.cmt.slice(0,40)+'"':''}${ln.date?' ('+ln.date+')':''}` :'';
+      if(w.couleur==='rhum'){
+        return `  id=${w.id} "${w.nom}" ${w.rhumType||'?'} | pos:${_winePos(w)} | distillerie:${w.distillerie||'?'} | pays:${w.pays||'?'} | prix:${w.prix||'?'}€${noteStr}`;
+      }
+      return `  id=${w.id} "${w.nom}" ${w.millesime||'?'} | pos:${_winePos(w)} | prod:${w.producteur||'?'} | appel:${w.appellation||'?'} | région:${w.region||'?'} | prix:${w.prix||'?'}€ | score:${w.scorePresse||'?'}/100 | achat:${w.dateAchat||'?'} | ${st?_ml[st]:'maturité?'}${w.apogeeDebut?` (apogée:${w.apogeeDebut}-${w.apogeeFin})`:''}${noteStr}`;
+    });
+    return header+'\n'+lines.join('\n');
+  }).join('\n\n');
+}
+
+
 async function sendChat(){
   const inp=document.getElementById('chat-in');
   const txt=inp.value.trim();
   if(!txt&&!chatB64)return;
   inp.value='';inp.style.height='';
 
-  const nowYear=new Date().getFullYear();
-  const _matLabel={maturation:'🟢 maturation',debut_apogee:'🟡 début apogée',apogee:'🟠 apogée',declin:'🔴 déclin'};
-  const cavesCtx=db.caves.map(c=>{
-    const ws=winesOfCave(c.id);
-    return `Cave "${c.name}" (${ws.length} vins):\n${ws.slice(0,50).map(w=>{
-      const st=maturiteStatus(w);
-      const lastNote=(db.journal||[]).filter(j=>j.wineId===w.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
-      const noteStr=lastNote?` | dégustation:${lastNote.note}★${lastNote.cmt?' "'+lastNote.cmt+'"':''}${lastNote.date?' ('+lastNote.date+')':''}` :'';
-      return `  id=${w.id} "${w.nom}" ${w.millesime||'?'} | emplacement:${_winePos(w)} | producteur:${w.producteur||'?'} | appellation:${w.appellation||'?'} | prix:${w.prix||'?'}€ | score:${w.scorePresse||'?'}/100 | achat:${w.dateAchat||'?'} | ${st?_matLabel[st]:'maturité?'}${noteStr}`;
-    }).join('\n')}`;
-  }).join('\n\n');
+  const cavesCtx=buildCaveContextForAI();
 
   if(chatB64){
     const img=chatB64;chatB64=null;
@@ -4051,9 +4080,7 @@ async function sendCaveChat(){
   };
   addMsg('user',txt);
   const ty=addMsg('ai','<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>');
-  const _nowY=new Date().getFullYear();
-  const _ml={maturation:'🟢 maturation',debut_apogee:'🟡 début apogée',apogee:'🟠 apogée',declin:'🔴 déclin'};
-  const cavesCtx=db.caves.map(c=>{const ws=winesOfCave(c.id);return `Cave "${c.name}":\n${ws.slice(0,30).map(w=>{const st=maturiteStatus(w);const ln=(db.journal||[]).filter(j=>j.wineId===w.id).sort((a,b)=>b.date.localeCompare(a.date))[0];return `  id=${w.id} "${w.nom||'?'}" ${w.millesime||'?'} | pos:${_winePos(w)} | prod:${w.producteur||'?'} | appel:${w.appellation||'?'} | prix:${w.prix||'?'}€ | score:${w.scorePresse||'?'}/100 | achat:${w.dateAchat||'?'} | ${st?_ml[st]:'?'}${ln?` | dég:${ln.note}★`:''}`}).join('\n')}`;}).join('\n\n');
+  const cavesCtx=buildCaveContextForAI();
   const sys=`Tu es un sommelier expert. Tu tutoies. Réponses très courtes (2-3 lignes max).\nCaves:\n${cavesCtx}`;
   try{
     const msgs=[...chatHist.slice(-4),{role:'user',content:txt}];
@@ -4516,6 +4543,16 @@ function changeCave(){
 function openOv(id){document.getElementById(id).classList.add('on');}
 function closeOv(id){document.getElementById(id).classList.remove('on');}
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2600);}
+
+// Flèches clavier pour naviguer dans la fiche vin (ArrowLeft/ArrowRight)
+document.addEventListener('keydown',e=>{
+  const ovDetail=document.getElementById('ov-detail');
+  if(!ovDetail?.classList.contains('on'))return;
+  if(document.activeElement&&['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))return;
+  if(e.key==='ArrowLeft'){e.preventDefault();detailNavPrev();}
+  else if(e.key==='ArrowRight'){e.preventDefault();detailNavNext();}
+  else if(e.key==='Escape'){closeOv('ov-detail');}
+});
 
 // ═══════════════════════════════════════════
 // SAUVEGARDE / RESTAURATION JSON
@@ -5141,8 +5178,46 @@ function exportXLS(){
 // ═══════════════════════════════════════════
 // DETAIL VIN
 // ═══════════════════════════════════════════
+// ── Navigation séquentielle dans la cave ─────────────────────────────────────
+// Trie les bouteilles d'une cave dans l'ordre physique : clayette → rangée → colonne → profondeur (AV avant AR)
+function _caveWinesSorted(caveId){
+  const cave=getCave(caveId);
+  if(!cave)return winesOfCave(caveId);
+  return winesOfCave(caveId).slice().sort((a,b)=>{
+    const pa=parsePos(a.position),pb=parsePos(b.position);
+    if(!pa&&!pb)return 0;if(!pa)return 1;if(!pb)return -1;
+    if(pa.ci!==pb.ci)return pa.ci-pb.ci;
+    if(pa.r!==pb.r)return pa.r-pb.r;
+    if(pa.c!==pb.c)return pa.c-pb.c;
+    return (a.depth||0)-(b.depth||0); // AV (0) avant AR (1)
+  });
+}
+let _detailCurrentId=null; // id de la bouteille affichée
+let _detailSwipeX=0;       // position X au touchstart
+
+function detailNavTo(id){showDetail(id,false);}
+function detailNavPrev(){
+  if(!_detailCurrentId)return;
+  const w=db.wines.find(x=>x.id===_detailCurrentId);if(!w)return;
+  const sorted=_caveWinesSorted(w.caveId);
+  const idx=sorted.findIndex(x=>x.id===_detailCurrentId);
+  if(idx<0)return;
+  const prev=sorted[(idx-1+sorted.length)%sorted.length];
+  showDetail(prev.id,false);
+}
+function detailNavNext(){
+  if(!_detailCurrentId)return;
+  const w=db.wines.find(x=>x.id===_detailCurrentId);if(!w)return;
+  const sorted=_caveWinesSorted(w.caveId);
+  const idx=sorted.findIndex(x=>x.id===_detailCurrentId);
+  if(idx<0)return;
+  const next=sorted[(idx+1)%sorted.length];
+  showDetail(next.id,false);
+}
+
 function showDetail(id,fromChat=false){
   const w=db.wines.find(x=>x.id===id);if(!w)return;
+  _detailCurrentId=id;
   const cave=getCave(w.caveId);
   const year=new Date().getFullYear();
   const isApogee=w.apogeeDebut&&w.apogeeFin&&year>=w.apogeeDebut&&year<=w.apogeeFin;
@@ -5229,6 +5304,34 @@ function showDetail(id,fromChat=false){
         <span>Accords Mets &amp; Vins</span>
       </button>`:''}
     </div>`;
+  // Navigation : indicateur de position + visibilité des chevrons
+  const _sorted=_caveWinesSorted(w.caveId);
+  const _idx=_sorted.findIndex(x=>x.id===id);
+  const _total=_sorted.length;
+  const _prevBtn=document.getElementById('detail-prev-btn');
+  const _nextBtn=document.getElementById('detail-next-btn');
+  const _navInd=document.getElementById('detail-nav-indicator');
+  if(_total>1){
+    if(_prevBtn)_prevBtn.style.visibility='visible';
+    if(_nextBtn)_nextBtn.style.visibility='visible';
+    if(_navInd)_navInd.textContent=`${_idx+1} / ${_total}`;
+  } else {
+    if(_prevBtn)_prevBtn.style.visibility='hidden';
+    if(_nextBtn)_nextBtn.style.visibility='hidden';
+    if(_navInd)_navInd.textContent='';
+  }
+  // Swipe touch sur le contenu de la fiche
+  const _dc=document.getElementById('detail-content');
+  if(_dc){
+    let _swipeY=0;
+    _dc.ontouchstart=e=>{_detailSwipeX=e.touches[0].clientX;_swipeY=e.touches[0].clientY;};
+    _dc.ontouchend=e=>{
+      const dx=e.changedTouches[0].clientX-_detailSwipeX;
+      const dy=Math.abs(e.changedTouches[0].clientY-_swipeY);
+      // Swipe horizontal seulement si plus large que vertical (pas un scroll)
+      if(Math.abs(dx)>60&&Math.abs(dx)>dy*1.5&&_total>1){dx>0?detailNavPrev():detailNavNext();}
+    };
+  }
   openOv('ov-detail');
 }
 
@@ -6668,9 +6771,9 @@ function renderSupercave(){
   <!-- TOP 10 APOGÉE → DÉCLIN IMMINANT (≤12 mois) -->
   ${(()=>{
     const nowY=new Date().getFullYear();
-    // J+3 mois : on calcule la date dans 3 mois, un vin est "imminent" si son apogée
-    // se termine avant cette date (Jan 1 de apogeeFin+1 <= today+3 mois)
-    const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()+3);
+    // J+6 mois : on calcule la date dans 6 mois, un vin est "imminent" si son apogée
+    // se termine avant cette date (Jan 1 de apogeeFin+1 <= today+6 mois)
+    const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()+6);
     const urgents=wines.filter(w=>maturiteStatus(w)==='apogee'&&w.apogeeFin&&new Date(w.apogeeFin+1,0,1)<=cutoff)
       .sort((a,b)=>(a.apogeeFin||9999)-(b.apogeeFin||9999))
       .slice(0,10);
@@ -6681,7 +6784,7 @@ function renderSupercave(){
         <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;">⏳ Apogée — déclin imminent</div>
         <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:${cfgA.color}22;color:${cfgA.color};">à boire vite</div>
       </div>
-      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">Passent en déclin dans moins de 3 mois · <span style="color:${cfgA.color};cursor:pointer;" onclick="event.stopPropagation();invMaturiteFilter='apogee';invFilter='tous';invCaveFilter=null;nav('inv');">Voir dans l'inventaire →</span></div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">Passent en déclin dans moins de 6 mois · <span style="color:${cfgA.color};cursor:pointer;" onclick="event.stopPropagation();invMaturiteFilter='apogee';invFilter='tous';invCaveFilter=null;nav('inv');">Voir dans l'inventaire →</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
         ${urgents.map(w=>{
           const finDansNMois=w.apogeeFin===nowY?`cette année`:w.apogeeFin===nowY+1?`en ${w.apogeeFin}`:`${w.apogeeFin}`;
