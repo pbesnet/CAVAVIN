@@ -798,6 +798,22 @@ div[onclick], span[onclick]{
 
           </div>
 
+          <!-- FENÊTRE D'APOGÉE MANUELLE (masquée pour le rhum) -->
+          <div id="wf-apogee" style="margin-top:8px;background:var(--paper2);border-radius:12px;padding:10px 12px;border:1px solid var(--border);">
+            <div style="font-size:10px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px;">🍇 Fenêtre d'apogée <span id="wf-apogee-badge" style="display:none;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:4px;vertical-align:middle;"></span></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" style="font-size:11px;">Début</label>
+                <input type="number" id="add-apogee-debut" class="form-input" placeholder="2026" min="1970" max="2100" style="font-size:13px;padding:7px 8px;" oninput="updateApogeeBadge(true,false)">
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" style="font-size:11px;">Fin</label>
+                <input type="number" id="add-apogee-fin" class="form-input" placeholder="2032" min="1970" max="2100" style="font-size:13px;padding:7px 8px;" oninput="updateApogeeBadge(true,false)">
+              </div>
+            </div>
+            <div style="font-size:10px;color:var(--ink3);margin-top:5px;">Laisse vide pour utiliser l'estimation IA · Remplis les deux champs pour forcer une valeur</div>
+          </div>
+
           <!-- CHAMPS RHUM (visibles uniquement pour les bouteilles de rhum) -->
           <div id="add-rhum-fields" style="display:none;margin-top:8px;background:#A0522D18;border-radius:12px;padding:12px;border:1px solid #A0522D44;">
             <div style="font-size:10px;font-weight:700;color:#7B3010;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">🥃 Infos Rhum</div>
@@ -3144,6 +3160,10 @@ function editWine(id){
   set('add-qty',1);
   const qtyEl=document.getElementById('add-qty');
   if(qtyEl){qtyEl.min=1;qtyEl.title=`Modification d'une bouteille · lot actuel : ${batchTotal}. Pour retirer, utilisez "Retirer".`;}
+  // Fenêtre d'apogée manuelle
+  set('add-apogee-debut',w.apogeeDebut||'');
+  set('add-apogee-fin',w.apogeeFin||'');
+  updateApogeeBadge(w.maturiteManuelle,w.maturiteHeuristique);
   // Bio toggle
   const bioEl=document.getElementById('add-bio');
   if(bioEl){bioEl.checked=!!w.biologique;const t=document.getElementById('add-bio-track');const th=document.getElementById('add-bio-thumb');if(t)t.style.background=w.biologique?'var(--rouge)':'var(--border)';if(th)th.style.transform=w.biologique?'translateX(16px)':'translateX(0)';}
@@ -3185,6 +3205,9 @@ function resetAddForm(){
    'add-producteur','add-dateachat','add-lieuachat','add-score'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
+  // Apogée manuelle
+  ['add-apogee-debut','add-apogee-fin'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  updateApogeeBadge(false,false);
   // Champs rhum
   ['add-rhum-type','add-distillerie','add-pays'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   // Selects
@@ -3245,9 +3268,11 @@ function saveWine(){
     scorePresse:parseInt(document.getElementById('add-score')?.value)||null,
     biologique:isRhumBottle?false:(bioEl?bioEl.checked:false),
     photo:bottleB64||null,
-    apogeeDebut:isRhumBottle?null:(_aiApogeeDebut||null),
-    apogeeFin:isRhumBottle?null:(_aiApogeeFin||null),
-    maturiteUpdatedAt:(!isRhumBottle&&_aiApogeeDebut)?new Date().toISOString():undefined,
+    // Fenêtre d'apogée : manuelle > IA > null
+    apogeeDebut:(()=>{if(isRhumBottle)return null;const m=parseInt(document.getElementById('add-apogee-debut')?.value)||null;const f=parseInt(document.getElementById('add-apogee-fin')?.value)||null;if(m&&f&&f>m)return m;return _aiApogeeDebut||null;})(),
+    apogeeFin:(()=>{if(isRhumBottle)return null;const m=parseInt(document.getElementById('add-apogee-debut')?.value)||null;const f=parseInt(document.getElementById('add-apogee-fin')?.value)||null;if(m&&f&&f>m)return f;return _aiApogeeFin||null;})(),
+    maturiteManuelle:(()=>{if(isRhumBottle)return false;const m=parseInt(document.getElementById('add-apogee-debut')?.value)||null;const f=parseInt(document.getElementById('add-apogee-fin')?.value)||null;return !!(m&&f&&f>m);})(),
+    maturiteUpdatedAt:(()=>{if(isRhumBottle)return undefined;const m=parseInt(document.getElementById('add-apogee-debut')?.value)||null;const f=parseInt(document.getElementById('add-apogee-fin')?.value)||null;if(m&&f&&f>m)return new Date().toISOString();return _aiApogeeDebut?new Date().toISOString():undefined;})(),
     // Champs rhum
     rhumType:isRhumBottle?(document.getElementById('add-rhum-type')?.value||null):null,
     distillerie:isRhumBottle?(document.getElementById('add-distillerie')?.value.trim()||null):null,
@@ -3264,14 +3289,15 @@ function saveWine(){
       // Préserver la maturité sauf si l'IA vient de la recalculer OU si le millésime a changé
       // (un changement de prix, nom, appellation, etc. ne doit JAMAIS effacer l'apogée)
       const millesimeChanged=fields.millesime!==prev.millesime;
-      if(!_aiApogeeDebut&&!millesimeChanged){
-        // Aucun recalcul IA, millésime inchangé → conserver les valeurs existantes
+      if(!fields.maturiteManuelle&&!_aiApogeeDebut&&!millesimeChanged){
+        // Pas de valeur manuelle, pas de recalcul IA, millésime inchangé → conserver l'existant
         fields.apogeeDebut=prev.apogeeDebut;
         fields.apogeeFin=prev.apogeeFin;
         fields.maturiteUpdatedAt=prev.maturiteUpdatedAt;
+        fields.maturiteManuelle=prev.maturiteManuelle;
       }
-      // Si millésime changé sans recalcul IA → on remet à null pour déclencher un calcul futur
-      // (fields.apogeeDebut est déjà null dans ce cas puisque _aiApogeeDebut=null)
+      // Si millésime changé et pas de valeur manuelle → remet à null pour déclencher un calcul futur
+      // Si valeur manuelle → elle est déjà dans fields, on la garde quoi qu'il arrive
       db.wines[bidx]={...prev,...fields};
     }
     // 2. Repositionnement si cave ou position changée
@@ -4189,7 +4215,7 @@ function syncFormToBottleType(){
     if(!isRhumCave && couleurEl.value==='rhum') couleurEl.value='rouge';
   }
   const isRhum=couleurEl?.value==='rhum';
-  const WINE_IDS=['wf-millesime','wf-region','wf-appellation','wf-cepage','wf-producteur','wf-format','wf-dateachat','wf-lieuachat','wf-carafage','wf-bio'];
+  const WINE_IDS=['wf-millesime','wf-region','wf-appellation','wf-cepage','wf-producteur','wf-format','wf-dateachat','wf-lieuachat','wf-carafage','wf-bio','wf-apogee'];
   WINE_IDS.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=isRhum?'none':'';});
   const rhumFields=document.getElementById('add-rhum-fields');
   if(rhumFields)rhumFields.style.display=isRhum?'block':'none';
@@ -4205,6 +4231,31 @@ function syncFormToBottleType(){
   }
 }
 function onAddCouleurChange(){renderPlacementPreview();syncFormToBottleType();}
+
+// Met à jour le badge de statut de la fenêtre d'apogée dans le formulaire
+// isManuel : true si la valeur vient d'une saisie manuelle (vin en édition)
+// isHeuristique : true si la valeur vient de l'heuristique locale
+function updateApogeeBadge(isManuel,isHeuristique){
+  const badge=document.getElementById('wf-apogee-badge');
+  if(!badge)return;
+  const d=parseInt(document.getElementById('add-apogee-debut')?.value)||null;
+  const f=parseInt(document.getElementById('add-apogee-fin')?.value)||null;
+  const hasValues=d&&f&&f>d;
+  if(!hasValues){badge.style.display='none';return;}
+  // Détermine la source : si l'utilisateur vient de taper → "forcé"
+  // sinon utilise les flags passés depuis editWine
+  const forceFlag=isManuel===true;
+  const heuristiqueFlag=isHeuristique===true;
+  if(forceFlag){
+    badge.style.display='';badge.style.background='#7C3AED22';badge.style.color='#7C3AED';badge.textContent='✎ manuel';
+  } else if(heuristiqueFlag){
+    badge.style.display='';badge.style.background='#E8F4FF';badge.style.color='#1a56db';badge.textContent='⚡ heuristique';
+  } else if(d||f){
+    badge.style.display='';badge.style.background='#E8F4FF';badge.style.color='#1a56db';badge.textContent='🤖 IA';
+  } else {
+    badge.style.display='none';
+  }
+}
 
 // Navigation vers le form ajout depuis un emplacement vide dans la cave (force la position + contexte cave)
 function navAddFromSlot(pos){_pendingForcedPosition=pos;_addFromCave=true;nav('add');}
@@ -4793,7 +4844,8 @@ async function estimateMaturiteAI(wineIds,onProgress=null){
   const wines=wineIds
     .map(id=>db.wines.find(w=>w.id===id))
     .filter(Boolean)
-    .filter(w=>w.couleur!=='rhum');
+    .filter(w=>w.couleur!=='rhum')
+    .filter(w=>!w.maturiteManuelle); // ne pas écraser une valeur saisie manuellement
   if(!wines.length)return 0;
   _maturiteAbort=false;
   let updated=0;
