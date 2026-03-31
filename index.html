@@ -233,6 +233,7 @@ img{display:block;}
 .slot.blanc,.wc-dot.blanc{background:radial-gradient(circle at 35% 30%,#FFE040,#C89A10);}
 .slot.rose,.wc-dot.rose{background:radial-gradient(circle at 35% 30%,#FF3D78,#CC0050);}
 .slot.champagne,.wc-dot.champagne{background:radial-gradient(circle at 35% 30%,#C49010,#7A5500);}
+.slot.rhum,.wc-dot.rhum{background:radial-gradient(circle at 35% 30%,#A0522D,#3E1A0A);}
 .mh{width:36px;height:4px;background:var(--border);border-radius:99px;margin:0 auto 16px;}
 .wc-info{flex:1;min-width:0;}
 .wc-name{font-weight:500;font-size:14px;color:var(--ink);}
@@ -246,6 +247,7 @@ img{display:block;}
 .badge.blanc{background:var(--blanc-l);color:var(--blanc);}
 .badge.rose{background:var(--rose-l);color:var(--rose);}
 .badge.champagne{background:var(--champ-l);color:var(--champ);}
+.badge.rhum{background:#A0522D22;color:#7B3010;}
 
 /* ═══════════════ MODALS ═══════════════ */
 .overlay{
@@ -691,20 +693,21 @@ div[onclick], span[onclick]{
 
             <div class="form-group" style="margin-bottom:0;">
               <label class="form-label" style="font-size:11px;">Couleur</label>
-              <select id="add-couleur" class="form-select" onchange="renderPlacementPreview()" style="font-size:13px;padding:7px 8px;">
+              <select id="add-couleur" class="form-select" onchange="onAddCouleurChange()" style="font-size:13px;padding:7px 8px;">
                 <option value="rouge">🔴 Rouge</option>
                 <option value="blanc">🟡 Blanc</option>
                 <option value="rose">🩷 Rosé</option>
                 <option value="champagne">🥂 Champagne</option>
+                <option value="rhum">🥃 Rhum</option>
               </select>
             </div>
 
-            <div class="form-group" style="margin-bottom:0;">
+            <div id="wf-millesime" class="form-group" style="margin-bottom:0;">
               <label class="form-label" style="font-size:11px;">Millésime</label>
               <input type="number" id="add-millesime" class="form-input" placeholder="2020" style="font-size:13px;padding:7px 8px;">
             </div>
 
-            <div class="form-group" style="margin-bottom:0;">
+            <div id="wf-region" class="form-group" style="margin-bottom:0;">
               <label class="form-label" style="font-size:11px;">Région</label>
               <select id="add-region" class="form-select" style="font-size:13px;padding:7px 8px;">
                 <option>Bordeaux</option>
@@ -732,12 +735,12 @@ div[onclick], span[onclick]{
               </select>
             </div>
 
-            <div class="form-group" style="margin-bottom:0;">
+            <div id="wf-appellation" class="form-group" style="margin-bottom:0;">
               <label class="form-label" style="font-size:11px;">Appellation</label>
               <input type="text" id="add-appellation" class="form-input" placeholder="AOC" style="font-size:13px;padding:7px 8px;">
             </div>
 
-            <div class="form-group" style="margin-bottom:0;">
+            <div id="wf-cepage" class="form-group" style="margin-bottom:0;">
               <label class="form-label" style="font-size:11px;">Cépage</label>
               <input type="text" id="add-cepage" class="form-input" placeholder="Cab. Sauvignon" style="font-size:13px;padding:7px 8px;">
             </div>
@@ -747,12 +750,12 @@ div[onclick], span[onclick]{
               <input type="number" id="add-prix" class="form-input" placeholder="0" style="font-size:13px;padding:7px 8px;">
             </div>
 
-            <div class="form-group" style="margin-bottom:0;">
+            <div id="wf-producteur" class="form-group" style="margin-bottom:0;">
               <label class="form-label" style="font-size:11px;">Producteur</label>
               <input type="text" id="add-producteur" class="form-input" placeholder="Château, Domaine…" style="font-size:13px;padding:7px 8px;">
             </div>
 
-            <div class="form-group" style="margin-bottom:0;">
+            <div id="wf-format" class="form-group" style="margin-bottom:0;">
               <label class="form-label" style="font-size:11px;">Format</label>
               <select id="add-format" class="form-select" style="font-size:13px;padding:7px 8px;">
                 <option value="75cl">🍾 Standard 75cl</option>
@@ -763,17 +766,17 @@ div[onclick], span[onclick]{
               </select>
             </div>
 
-            <div class="form-group" style="margin-bottom:0;">
+            <div id="wf-dateachat" class="form-group" style="margin-bottom:0;">
               <label class="form-label" style="font-size:11px;">Date d'achat</label>
               <input type="date" id="add-dateachat" class="form-input" style="font-size:13px;padding:7px 8px;">
             </div>
 
-            <div class="form-group" style="margin-bottom:0;">
+            <div id="wf-lieuachat" class="form-group" style="margin-bottom:0;">
               <label class="form-label" style="font-size:11px;">Lieu d'achat</label>
               <input type="text" id="add-lieuachat" class="form-input" placeholder="Caviste…" style="font-size:13px;padding:7px 8px;">
             </div>
 
-            <div class="form-group" style="margin-bottom:0;">
+            <div id="wf-carafage" class="form-group" style="margin-bottom:0;">
               <label class="form-label" style="font-size:11px;">Carafage</label>
               <select id="add-carafage" class="form-select" style="font-size:13px;padding:7px 8px;">
                 <option value="">— Non précisé</option>
@@ -791,10 +794,39 @@ div[onclick], span[onclick]{
 
           </div>
 
+          <!-- CHAMPS RHUM (visibles uniquement pour les bouteilles de rhum) -->
+          <div id="add-rhum-fields" style="display:none;margin-top:8px;background:#A0522D18;border-radius:12px;padding:12px;border:1px solid #A0522D44;">
+            <div style="font-size:10px;font-weight:700;color:#7B3010;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">🥃 Infos Rhum</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;">
+              <div class="form-group" style="margin-bottom:0;grid-column:1/-1;">
+                <label class="form-label" style="font-size:11px;">Type</label>
+                <select id="add-rhum-type" class="form-select" style="font-size:13px;padding:7px 8px;">
+                  <option value="">— Sélectionner</option>
+                  <option value="Blanc">Blanc</option>
+                  <option value="Paille">Paille</option>
+                  <option value="VO">VO</option>
+                  <option value="VSOP">VSOP</option>
+                  <option value="XO">XO</option>
+                  <option value="Réserve">Réserve</option>
+                  <option value="Liqueur">Liqueur</option>
+                  <option value="Punch">Punch</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" style="font-size:11px;">Distillerie</label>
+                <input type="text" id="add-distillerie" class="form-input" placeholder="Clément, Bally…" style="font-size:13px;padding:7px 8px;">
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" style="font-size:11px;">Pays / Île</label>
+                <input type="text" id="add-pays" class="form-input" placeholder="Martinique, Cuba…" style="font-size:13px;padding:7px 8px;">
+              </div>
+            </div>
+          </div>
+
           <!-- BIO toggle + Quantité (moitié/moitié) -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:stretch;margin-top:8px;">
+          <div id="wf-bio-qty" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:stretch;margin-top:8px;">
             <!-- Bio -->
-            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--paper2);border-radius:10px;cursor:pointer;" onclick="document.getElementById('add-bio').click()">
+            <div id="wf-bio" style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--paper2);border-radius:10px;cursor:pointer;" onclick="document.getElementById('add-bio').click()">
               <span style="font-size:15px;">🌿</span>
               <div style="flex:1;font-weight:600;font-size:12px;line-height:1.2;">Bio /<br>Biodynamie</div>
               <label style="position:relative;display:inline-block;width:38px;height:22px;flex-shrink:0;cursor:pointer;">
@@ -842,11 +874,14 @@ div[onclick], span[onclick]{
             <button class="btn btn-secondary ft" data-f="blanc" onclick="setIF('blanc',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🟡 Blanc</button>
             <button class="btn btn-secondary ft" data-f="rose" onclick="setIF('rose',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🩷 Rosé</button>
             <button class="btn btn-secondary ft" data-f="champagne" onclick="setIF('champagne',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🥂 Champ.</button>
+            <button class="btn btn-secondary ft" data-f="rhum" onclick="setIF('rhum',this)" style="white-space:nowrap;border-radius:99px;padding:6px 14px;font-size:12px;">🥃 Rhum</button>
           </div>
           <!-- Filtres caves (générés dynamiquement) -->
           <div id="inv-cave-tabs" style="display:flex;gap:6px;margin-bottom:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px;"></div>
           <!-- Filtres régions (générés dynamiquement) -->
           <div id="inv-region-tabs" style="display:none;gap:6px;margin-bottom:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;"></div>
+          <!-- Filtres type rhum (générés dynamiquement) -->
+          <div id="inv-rhum-type-tabs" style="display:none;gap:6px;margin-bottom:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;"></div>
           <!-- Filtres maturité (générés dynamiquement) -->
           <div id="inv-maturite-tabs" style="display:none;gap:6px;margin-bottom:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;"></div>
           <div id="inv-list"></div>
@@ -1074,6 +1109,21 @@ div[onclick], span[onclick]{
             </select>
           </div>
         </div>
+        <!-- Cave à Rhum toggle -->
+        <div style="display:flex;align-items:center;gap:10px;padding:11px 12px;background:var(--paper2);border-radius:10px;cursor:pointer;margin-bottom:12px;" onclick="document.getElementById('wc-isrhum').click()">
+          <span style="font-size:18px;">🥃</span>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:600;color:var(--ink);">Cave à Rhum</div>
+            <div style="font-size:11px;color:var(--ink3);">Réservée exclusivement au rhum</div>
+          </div>
+          <label style="position:relative;display:inline-block;width:38px;height:22px;flex-shrink:0;cursor:pointer;">
+            <input type="checkbox" id="wc-isrhum" style="opacity:0;width:0;height:0;" onchange="(function(c){const t=document.getElementById('wc-isrhum-track');const th=document.getElementById('wc-isrhum-thumb');if(t)t.style.background=c?'#A0522D':'var(--border)';if(th)th.style.transform=c?'translateX(16px)':'translateX(0)'})(this.checked)">
+            <span id="wc-isrhum-track" style="position:absolute;inset:0;background:var(--border);border-radius:99px;transition:.25s;pointer-events:none;">
+              <span id="wc-isrhum-thumb" style="position:absolute;left:2px;top:2px;width:18px;height:18px;background:#fff;border-radius:50%;transition:.25s;box-shadow:0 1px 4px rgba(0,0,0,.2);pointer-events:none;"></span>
+            </span>
+          </label>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Mode de configuration</label>
           <select id="wc-mode" class="form-select" onchange="updateWizMode()">
@@ -2442,9 +2492,11 @@ function renderPlacementPreview(){
   const container=document.getElementById('placement-preview');
   if(!container)return;
 
-  const selectableCaves=db.caves.filter(c=>!c.vrac);
+  const couleurForCave=document.getElementById('add-couleur')?.value;
+  const isRhumForm=couleurForCave==='rhum';
+  const selectableCaves=db.caves.filter(c=>!c.vrac&&(isRhumForm?c.isRhum:!c.isRhum));
   if(!selectableCaves.length){container.style.display='none';return;}
-  if(!activeCave||!getCave(activeCave))activeCave=selectableCaves[0].id;
+  if(!activeCave||!getCave(activeCave)||getCave(activeCave)?.isRhum!==isRhumForm)activeCave=selectableCaves[0]?.id||activeCave;
   const cave=getCave(activeCave);
   if(!cave){container.style.display='none';return;}
 
@@ -2853,6 +2905,10 @@ function editWine(id){
   set('add-region',w.region||'Bordeaux');
   set('add-format',w.format||'75cl');
   set('add-carafage',w.carafage||'');
+  // Champs rhum
+  set('add-rhum-type',w.rhumType||'');
+  set('add-distillerie',w.distillerie||'');
+  set('add-pays',w.pays||'');
   set('add-qty',1);
   const qtyEl=document.getElementById('add-qty');
   if(qtyEl){qtyEl.min=1;qtyEl.title=`Modification d'une bouteille · lot actuel : ${batchTotal}. Pour retirer, utilisez "Retirer".`;}
@@ -2893,8 +2949,10 @@ function resetAddForm(){
    'add-producteur','add-dateachat','add-lieuachat','add-score'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
+  // Champs rhum
+  ['add-rhum-type','add-distillerie','add-pays'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   // Selects
-  const couleurEl=document.getElementById('add-couleur');if(couleurEl)couleurEl.value='rouge';
+  const couleurEl=document.getElementById('add-couleur');if(couleurEl){couleurEl.value='rouge';couleurEl.disabled=false;}
   const regionEl=document.getElementById('add-region');if(regionEl)regionEl.value='';
   const qtyEl=document.getElementById('add-qty');if(qtyEl)qtyEl.value='1';
   const fmtEl=document.getElementById('add-format');if(fmtEl)fmtEl.value='75cl';
@@ -2928,26 +2986,36 @@ function saveWine(){
   if(!nom){showToast('⚠️ Entrez le nom du vin');return;}
 
   const bioEl=document.getElementById('add-bio');
+  const couleurVal=document.getElementById('add-couleur').value;
+  const isRhumBottle=couleurVal==='rhum';
+  const targetCaveCheck=getCave(activeCave);
+  // Validation croisée rhum ↔ cave
+  if(targetCaveCheck?.isRhum&&!isRhumBottle){showToast('⚠️ Cave rhum — choisissez "Rhum" comme couleur');return;}
+  if(!targetCaveCheck?.isRhum&&isRhumBottle){showToast('⚠️ Rhum uniquement dans une cave à rhum');return;}
   const fields={
     nom,
-    couleur:document.getElementById('add-couleur').value,
-    millesime:parseInt(document.getElementById('add-millesime').value)||null,
-    region:document.getElementById('add-region').value||null,
-    appellation:document.getElementById('add-appellation').value||null,
-    cepage:document.getElementById('add-cepage').value||null,
+    couleur:couleurVal,
+    millesime:isRhumBottle?null:(parseInt(document.getElementById('add-millesime').value)||null),
+    region:isRhumBottle?null:(document.getElementById('add-region').value||null),
+    appellation:isRhumBottle?null:(document.getElementById('add-appellation').value||null),
+    cepage:isRhumBottle?null:(document.getElementById('add-cepage').value||null),
     prix:parseInt(document.getElementById('add-prix').value)||0,
     prixIA:_aiFilledPrix!==null&&parseInt(document.getElementById('add-prix').value)===_aiFilledPrix,
-    producteur:document.getElementById('add-producteur')?.value.trim()||null,
-    format:document.getElementById('add-format')?.value||'75cl',
-    dateAchat:document.getElementById('add-dateachat')?.value||null,
-    lieuAchat:document.getElementById('add-lieuachat')?.value.trim()||null,
-    carafage:document.getElementById('add-carafage')?.value||null,
+    producteur:isRhumBottle?null:(document.getElementById('add-producteur')?.value.trim()||null),
+    format:isRhumBottle?'75cl':(document.getElementById('add-format')?.value||'75cl'),
+    dateAchat:isRhumBottle?null:(document.getElementById('add-dateachat')?.value||null),
+    lieuAchat:isRhumBottle?null:(document.getElementById('add-lieuachat')?.value.trim()||null),
+    carafage:isRhumBottle?null:(document.getElementById('add-carafage')?.value||null),
     scorePresse:parseInt(document.getElementById('add-score')?.value)||null,
-    biologique:bioEl?bioEl.checked:false,
+    biologique:isRhumBottle?false:(bioEl?bioEl.checked:false),
     photo:bottleB64||null,
-    apogeeDebut:_aiApogeeDebut||null,
-    apogeeFin:_aiApogeeFin||null,
-    maturiteUpdatedAt:_aiApogeeDebut?new Date().toISOString():undefined,
+    apogeeDebut:isRhumBottle?null:(_aiApogeeDebut||null),
+    apogeeFin:isRhumBottle?null:(_aiApogeeFin||null),
+    maturiteUpdatedAt:(!isRhumBottle&&_aiApogeeDebut)?new Date().toISOString():undefined,
+    // Champs rhum
+    rhumType:isRhumBottle?(document.getElementById('add-rhum-type')?.value||null):null,
+    distillerie:isRhumBottle?(document.getElementById('add-distillerie')?.value.trim()||null):null,
+    pays:isRhumBottle?(document.getElementById('add-pays')?.value.trim()||null):null,
   };
 
   // ── MODE ÉDITION ──
@@ -3162,6 +3230,22 @@ function saveWine(){
     if(apiKey){
       (async()=>{const n=await estimateMaturiteAI(idsNoApogee);if(n&&currentPage==='inv')renderInv();})();
     }
+  }
+
+  // ── Auto-fetch score presse si non renseigné ────────────────────────
+  const firstNewWine=db.wines.find(x=>x.id===newWineIds[0]);
+  if(firstNewWine&&!firstNewWine.scorePresse&&apiKey){
+    (async()=>{
+      try{
+        const ctx=`Tu es un critique de vin expert. Pour ce vin : "${firstNewWine.nom||''}"${firstNewWine.millesime?' '+firstNewWine.millesime:''}${firstNewWine.producteur?', domaine '+firstNewWine.producteur:''}${firstNewWine.appellation?', '+firstNewWine.appellation:''}${firstNewWine.region?', '+firstNewWine.region:''}. Donne le score moyen sur 100 selon les grandes critiques (Parker, Wine Spectator, Decanter, RVF...). Réponds UNIQUEMENT avec un entier entre 80 et 100. Si tu n'as pas d'info fiable sur ce vin précis, réponds 80.`;
+        const r=await apiCall([{role:'user',content:ctx}],10);
+        const score=parseInt(r.trim());
+        if(score>=80&&score<=100){
+          newWineIds.forEach(id=>{const w=db.wines.find(x=>x.id===id);if(w&&!w.scorePresse)w.scorePresse=score;});
+          dbSave();
+        }
+      }catch(_){}
+    })();
   }
 
   // ── Reset formulaire complet ─────────────────────────────────────────
@@ -3565,9 +3649,10 @@ async function sendChat(){
   const cavesCtx=db.caves.map(c=>{
     const ws=winesOfCave(c.id);
     return `Cave "${c.name}" (${ws.length} vins):\n${ws.slice(0,50).map(w=>{
-      const age=w.millesime?`${nowYear-w.millesime}ans`:'?';
       const st=maturiteStatus(w);
-      return `  id=${w.id} "${w.nom}" ${w.millesime||'?'}(${w.couleur},${w.region||'?'},${st?_matLabel[st]:'maturité?'})`;
+      const lastNote=(db.journal||[]).filter(j=>j.wineId===w.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
+      const noteStr=lastNote?` | dégustation:${lastNote.note}★${lastNote.cmt?' "'+lastNote.cmt+'"':''}${lastNote.date?' ('+lastNote.date+')':''}` :'';
+      return `  id=${w.id} "${w.nom}" ${w.millesime||'?'} | emplacement:${w.position||'?'} | producteur:${w.producteur||'?'} | appellation:${w.appellation||'?'} | prix:${w.prix||'?'}€ | score:${w.scorePresse||'?'}/100 | achat:${w.dateAchat||'?'} | ${st?_matLabel[st]:'maturité?'}${noteStr}`;
     }).join('\n')}`;
   }).join('\n\n');
 
@@ -3589,9 +3674,15 @@ async function sendChat(){
   addUser(txt);
   const ty=addTyp();
   const sys=`Tu es un sommelier expert et assistant cave personnel. Tu tutoies. Réponses courtes et pratiques.
-Caves (l'âge de chaque vin est indiqué) :
+Caves (chaque vin inclut : emplacement, producteur, appellation, prix, score critique /100, date d'achat, maturité actuelle, et dernière note de dégustation si disponible) :
 ${cavesCtx}
-MATURITÉ : Pour tout accord mets-vins, évalue la maturité de chaque candidat (fenêtre de dégustation selon appellation, couleur, âge). Privilégie toujours le vin à son apogée ou en léger déclin plutôt qu'un vin trop jeune — même si les deux conviendraient au plat. Si un vin plus jeune est clairement meilleur pour l'accord, précise pourquoi tu l'as quand même choisi.
+ACCORDS METS-VINS : Pour toute recommandation d'accord, prends en compte TOUS les champs disponibles dans cet ordre de priorité :
+1. MATURITÉ — privilégie les vins à l'apogée ou légèrement en déclin. Écarte les vins trop jeunes sauf si aucune alternative.
+2. APPELLATION & PRODUCTEUR — utilise la précision de l'appellation et le style du producteur/domaine pour affiner l'accord (ex: Chablis 1er Cru vs Bourgogne générique, Guigal vs Chapoutier sur Côtes-du-Rhône).
+3. SCORE — à accord équivalent, préfère le vin le mieux noté.
+4. DÉGUSTATION — si une note de dégustation existe, tiens compte du profil gustatif décrit (commentaire) pour affiner la recommandation.
+5. EMPLACEMENT — mentionne la position exacte dans la cave (ex: "Cave Salon, rangée A3") pour que l'utilisateur puisse le trouver facilement.
+6. PRIX — signale si le vin choisi représente un excellent rapport qualité-accord vs prix.
 IMPORTANT : quand tu mentionnes un vin de la cave, ajoute [[id]] juste après son nom (ex: "Château Margaux 2018 [[42]] serait parfait"). N'ajoute [[id]] que pour les vins présents dans les caves ci-dessus.
 Français, bref.`;
   try{
@@ -3631,7 +3722,9 @@ async function sendCaveChat(){
   };
   addMsg('user',txt);
   const ty=addMsg('ai','<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>');
-  const cavesCtx=db.caves.map(c=>{const ws=winesOfCave(c.id);return `Cave "${c.name}":\n${ws.slice(0,30).map(w=>`  "${w.nom||'?'}" ${w.millesime||''}(${w.couleur},${w.region||'?'},${w.position})`).join('\n')}`;}).join('\n\n');
+  const _nowY=new Date().getFullYear();
+  const _ml={maturation:'🟢 maturation',debut_apogee:'🟡 début apogée',apogee:'🟠 apogée',declin:'🔴 déclin'};
+  const cavesCtx=db.caves.map(c=>{const ws=winesOfCave(c.id);return `Cave "${c.name}":\n${ws.slice(0,30).map(w=>{const st=maturiteStatus(w);const ln=(db.journal||[]).filter(j=>j.wineId===w.id).sort((a,b)=>b.date.localeCompare(a.date))[0];return `  id=${w.id} "${w.nom||'?'}" ${w.millesime||'?'} | pos:${w.position||'?'} | prod:${w.producteur||'?'} | appel:${w.appellation||'?'} | prix:${w.prix||'?'}€ | score:${w.scorePresse||'?'}/100 | achat:${w.dateAchat||'?'} | ${st?_ml[st]:'?'}${ln?` | dég:${ln.note}★`:''}`}).join('\n')}`;}).join('\n\n');
   const sys=`Tu es un sommelier expert. Tu tutoies. Réponses très courtes (2-3 lignes max).\nCaves:\n${cavesCtx}`;
   try{
     const msgs=[...chatHist.slice(-4),{role:'user',content:txt}];
@@ -3750,9 +3843,18 @@ function _openWizard(editId=null){
     buildCustomCaveUI();
     // Repeupler les valeurs par clayette si édition
     if(c)c.clayettes.forEach((cl,i)=>{
-      const ri=document.getElementById('wc-r'+i);const ci=document.getElementById('wc-c'+i);const di=document.getElementById('wc-d'+i);
-      if(ri)ri.value=cl.rows;if(ci)ci.value=cl.cols;if(di)di.value=cl.depth||1;
+      const ri=document.getElementById('wc-r'+i);const ci=document.getElementById('wc-c'+i);const di=document.getElementById('wc-d'+i);const li=document.getElementById('wc-lbl'+i);
+      if(ri)ri.value=cl.rows;if(ci)ci.value=cl.cols;if(di)di.value=cl.depth||1;if(li&&cl.label)li.value=cl.label;
     });
+  }
+  // Pré-remplir isRhum toggle
+  const isRhumEl=document.getElementById('wc-isrhum');
+  const isRhumTrack=document.getElementById('wc-isrhum-track');
+  const isRhumThumb=document.getElementById('wc-isrhum-thumb');
+  if(isRhumEl){
+    isRhumEl.checked=!!(c?.isRhum);
+    if(isRhumTrack)isRhumTrack.style.background=c?.isRhum?'#A0522D':'var(--border)';
+    if(isRhumThumb)isRhumThumb.style.transform=c?.isRhum?'translateX(16px)':'translateX(0)';
   }
   const aiStatus=document.getElementById('cave-photo-ai-status');
   const aiResult=document.getElementById('cave-photo-ai-result');
@@ -3780,6 +3882,33 @@ function wizDeleteCave(){
   showToast('🗑️ Cave supprimée');
 }
 
+// ── Adaptation du formulaire ajout selon type cave / couleur ─────────────
+function syncFormToBottleType(){
+  const couleurEl=document.getElementById('add-couleur');
+  const cave=getCave(activeCave);
+  const isRhumCave=!!(cave?.isRhum);
+  // Si cave rhum, forcer couleur rhum et désactiver le select
+  if(isRhumCave){
+    if(couleurEl){couleurEl.value='rhum';couleurEl.disabled=true;}
+  } else {
+    if(couleurEl){
+      couleurEl.disabled=false;
+      // Si on était sur rhum et la cave n'est pas rhum, revenir à rouge
+      if(couleurEl.value==='rhum')couleurEl.value='rouge';
+    }
+  }
+  const isRhum=couleurEl?.value==='rhum';
+  const WINE_IDS=['wf-millesime','wf-region','wf-appellation','wf-cepage','wf-producteur','wf-format','wf-dateachat','wf-lieuachat','wf-carafage','wf-bio'];
+  WINE_IDS.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=isRhum?'none':'';});
+  const rhumFields=document.getElementById('add-rhum-fields');
+  if(rhumFields)rhumFields.style.display=isRhum?'block':'none';
+  const submitBtn=document.getElementById('add-submit-btn');
+  if(submitBtn)submitBtn.textContent=isRhum?'🥃 Ajouter à la cave':'🍾 Ajouter à la cave';
+  const nomEl=document.getElementById('add-nom');
+  if(nomEl)nomEl.placeholder=isRhum?'Diplomatico Reserva, Clément…':'Château Margaux';
+}
+function onAddCouleurChange(){renderPlacementPreview();syncFormToBottleType();}
+
 function updateWizMode(){
   const mode=document.getElementById('wc-mode').value;
   document.getElementById('wiz-uniform').style.display=mode==='uniform'?'grid':'none';
@@ -3798,6 +3927,10 @@ function buildCustomCaveUI(){
   for(let i=0;i<nc;i++){
     h+=`<div style="background:var(--paper2);border-radius:10px;padding:10px 12px;margin-bottom:8px;">
       <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px;">Clayette ${i+1}</div>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">Libellé (optionnel)</label>
+        <input type="text" id="wc-lbl${i}" class="form-input" placeholder="ex : Coffre Bignon, Cave service…" style="font-size:13px;">
+      </div>
       <div class="grid-2">
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label">Lignes</label>
@@ -3840,7 +3973,8 @@ function getWizClayettes(){
       const rows=parseInt(document.getElementById('wc-r'+i)?.value)||3;
       const cols=parseInt(document.getElementById('wc-c'+i)?.value)||12;
       const depth=parseInt(document.getElementById('wc-d'+i)?.value)||1;
-      clays.push({rows,cols,depth});
+      const label=document.getElementById('wc-lbl'+i)?.value.trim()||null;
+      clays.push({rows,cols,depth,...(label?{label}:{})});
     }
   }
   return clays;
@@ -3854,13 +3988,14 @@ function wizCreateDirect(){
     description:document.getElementById('wc-desc').value.trim()||null,
     lieu:document.getElementById('wc-lieu').value.trim()||null,
     type:document.getElementById('wc-type').value||'vieillissement',
+    isRhum:!!(document.getElementById('wc-isrhum')?.checked),
     clayettes:getWizClayettes()
   };
   if(editingCaveId!==null){
     // ─── MODE MODIFICATION ───
     const c=getCave(editingCaveId);if(!c)return;
     c.name=draft.name;c.description=draft.description;c.lieu=draft.lieu;c.type=draft.type;
-    c.clayettes=draft.clayettes;
+    c.isRhum=draft.isRhum;c.clayettes=draft.clayettes;
     // Recalculer les positions ; bouteilles qui ne rentrent plus → Cave Vrac
     const wines=winesOfCave(c.id);
     wines.forEach(w=>{w.position=null;});
@@ -3964,7 +4099,7 @@ async function apiCallWithSys(system,messages,maxTokens=800){
 // ═══════════════════════════════════════════
 // NAVIGATION & UI
 // ═══════════════════════════════════════════
-const colorLabel=c=>({rouge:'🔴 Rouge',blanc:'🟡 Blanc',rose:'🩷 Rosé',champagne:'🥂 Champagne'}[c]||c);
+const colorLabel=c=>({rouge:'🔴 Rouge',blanc:'🟡 Blanc',rose:'🩷 Rosé',champagne:'🥂 Champagne',rhum:'🥃 Rhum'}[c]||c);
 
 function toggleSidebar(){
   document.getElementById('sidebar').classList.toggle('visible');
@@ -4238,21 +4373,24 @@ let invFilter='tous';
 let invCaveFilter=null;    // null = toutes les caves
 let invRegionFilter=null;  // null = toutes les régions
 let invMaturiteFilter=null;// null = toutes les maturités
+let invRhumTypeFilter=null;// null = tous les types de rhum
 let _invNavFilters=false;  // true quand on arrive sur inv depuis une autre page avec filtres pré-réglés
 
 function setIF(f,el){
-  invFilter=f;invRegionFilter=null;invMaturiteFilter=null;
+  invFilter=f;invRegionFilter=null;invMaturiteFilter=null;invRhumTypeFilter=null;
   document.querySelectorAll('#inv-ftabs button').forEach(t=>{t.classList.remove('btn-primary','on');t.classList.add('btn-secondary');});
   el.classList.remove('btn-secondary');el.classList.add('btn-primary','on');
   renderInv();
 }
 function setICave(caveId){
-  invCaveFilter=caveId;invRegionFilter=null;invMaturiteFilter=null;
+  invCaveFilter=caveId;invRegionFilter=null;invMaturiteFilter=null;invRhumTypeFilter=null;
   renderInv();
 }
 function setInvRegion(r){invRegionFilter=(r===null||r===invRegionFilter)?null:r;renderInv();}
 function clearInvRegion(){invRegionFilter=null;renderInv();}
 function setInvMaturite(m){invMaturiteFilter=(m===null||m===invMaturiteFilter)?null:m;renderInv();}
+function setInvRhumType(t){invRhumTypeFilter=(t===null||t===invRhumTypeFilter)?null:t;renderInv();}
+function setInvFilter(f){invFilter=f;invRegionFilter=null;invMaturiteFilter=null;invRhumTypeFilter=null;document.querySelectorAll('#inv-ftabs button').forEach(b=>{const isTarget=b.dataset.f===f||b.onclick?.toString().includes("'"+f+"'");b.classList.toggle('btn-primary',isTarget);b.classList.toggle('btn-secondary',!isTarget);});}
 
 
 
@@ -4393,7 +4531,28 @@ function renderInv(){
   renderInvCaveTabs();
   // Tabs régions dynamiques
   const regBar=document.getElementById('inv-region-tabs');
+  // Filtre type rhum (uniquement quand filtre rhum actif)
+  const rhumTypeBar=document.getElementById('inv-rhum-type-tabs');
+  if(rhumTypeBar){
+    if(invFilter==='rhum'){
+      const rhumBaseWines=db.wines.filter(w=>{
+        if(invCaveFilter!==null&&w.caveId!==invCaveFilter)return false;
+        return w.couleur==='rhum'&&w.rhumType;
+      });
+      const typeMap={};
+      rhumBaseWines.forEach(w=>{typeMap[w.rhumType]=(typeMap[w.rhumType]||0)+1;});
+      const types=Object.entries(typeMap).sort((a,b)=>b[1]-a[1]);
+      if(types.length>1){
+        rhumTypeBar.style.display='flex';
+        rhumTypeBar.innerHTML=`<button onclick="setInvRhumType(null)" class="btn ${invRhumTypeFilter===null?'btn-primary':'btn-secondary'} ft" style="white-space:nowrap;border-radius:99px;padding:5px 12px;font-size:11px;flex-shrink:0;">Tous</button>`
+          +types.map(([t,n])=>`<button onclick="setInvRhumType('${t}')" class="btn ${invRhumTypeFilter===t?'btn-primary':'btn-secondary'} ft" style="white-space:nowrap;border-radius:99px;padding:5px 12px;font-size:11px;flex-shrink:0;">🥃 ${t} <span style="opacity:.6;">${n}</span></button>`).join('');
+      }else{rhumTypeBar.style.display='none';}
+    }else{rhumTypeBar.style.display='none';}
+  }
   if(regBar){
+    // Masquer les régions si filtre rhum actif (remplacé par filtre type)
+    if(invFilter==='rhum'){regBar.style.display='none';}
+    else{
     // Calculer les régions disponibles sur le filtre actuel (cave + couleur, sans région)
     const baseWines=db.wines.filter(w=>{
       if(invCaveFilter!==null&&w.caveId!==invCaveFilter)return false;
@@ -4408,6 +4567,7 @@ function renderInv(){
       regBar.innerHTML=`<button onclick="setInvRegion(null)" class="btn ${invRegionFilter===null?'btn-primary':'btn-secondary'} ft" style="white-space:nowrap;border-radius:99px;padding:5px 12px;font-size:11px;flex-shrink:0;">Toutes</button>`
         +regs.map(([r,n])=>`<button onclick="setInvRegion(this.dataset.r)" data-r="${r.replace(/"/g,'&quot;')}" class="btn ${invRegionFilter===r?'btn-primary':'btn-secondary'} ft" style="white-space:nowrap;border-radius:99px;padding:5px 12px;font-size:11px;flex-shrink:0;">🗺️ ${r} <span style="opacity:.6;">${n}</span></button>`).join('');
     }else{regBar.style.display='none';}
+    }
   }
   // Filtre maturité dynamique
   const matBar=document.getElementById('inv-maturite-tabs');
@@ -4433,6 +4593,7 @@ function renderInv(){
           return`<button onclick="setInvMaturite('${m}')" class="btn ft" style="white-space:nowrap;border-radius:99px;padding:5px 12px;font-size:11px;flex-shrink:0;border:none;cursor:pointer;font-family:'Outfit',sans-serif;background:${active?MAT_COLOR[m]:'var(--paper2)'};color:${active?'#fff':'var(--ink2)'};">${MAT_LABEL[m]} <span style="opacity:.7;">${matMap[m]}</span></button>`;
         }).join('');
     }else{matBar.style.display='none';}
+    if(invFilter==='rhum')matBar.style.display='none'; // pas de maturité pour le rhum
   }
   const q=(document.getElementById('inv-q')?.value||'').toLowerCase();
   let wines=db.wines.filter(w=>{
@@ -4440,7 +4601,13 @@ function renderInv(){
     if(invFilter!=='tous'&&w.couleur!==invFilter)return false;
     if(invRegionFilter!==null&&w.region!==invRegionFilter)return false;
     if(invMaturiteFilter!==null&&maturiteStatus(w)!==invMaturiteFilter)return false;
-    if(q&&!`${w.nom||''} ${w.region||''} ${w.appellation||''} ${w.millesime||''}`.toLowerCase().includes(q))return false;
+    if(invRhumTypeFilter!==null&&w.rhumType!==invRhumTypeFilter)return false;
+    if(q){
+      const searchStr=w.couleur==='rhum'
+        ?`${w.nom||''} ${w.distillerie||''} ${w.pays||''} ${w.rhumType||''}`.toLowerCase()
+        :`${w.nom||''} ${w.region||''} ${w.appellation||''} ${w.millesime||''}`.toLowerCase();
+      if(!searchStr.includes(q))return false;
+    }
     return true;
   });
   wines.sort((a,b)=>{
@@ -4472,13 +4639,14 @@ function renderInv(){
         ${cnt('blanc')?`<span style="background:var(--blanc-l);color:var(--blanc);border-radius:99px;padding:3px 9px;font-size:11px;font-weight:600;">🟡 ${cnt('blanc')}</span>`:''}
         ${cnt('rose')?`<span style="background:var(--rose-l);color:var(--rose);border-radius:99px;padding:3px 9px;font-size:11px;font-weight:600;">🩷 ${cnt('rose')}</span>`:''}
         ${cnt('champagne')?`<span style="background:var(--champ-l);color:var(--champ);border-radius:99px;padding:3px 9px;font-size:11px;font-weight:600;">🥂 ${cnt('champagne')}</span>`:''}
+        ${cnt('rhum')?`<span style="background:#A0522D22;color:#7B3010;border-radius:99px;padding:3px 9px;font-size:11px;font-weight:600;">🥃 ${cnt('rhum')}</span>`:''}
       </div>
     </div>`;
     const rows=caveWines.map(w=>`<div class="wine-card" onclick="showDetail(${w.id})">
       <div class="wc-dot ${w.couleur}"></div>
       <div class="wc-info">
-        <div class="wc-name" style="display:flex;align-items:center;gap:5px;">${w.nom||'—'}${maturiteDot(w)}</div>
-        <div class="wc-meta">${[w.millesime,w.region,w.appellation].filter(Boolean).join(' · ')}</div>
+        <div class="wc-name" style="display:flex;align-items:center;gap:5px;">${w.nom||'—'}${w.couleur==='rhum'?'':(maturiteDot(w))}</div>
+        <div class="wc-meta">${w.couleur==='rhum'?[w.rhumType,w.distillerie,w.pays].filter(Boolean).join(' · '):[w.millesime,w.region,w.appellation].filter(Boolean).join(' · ')}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;">
         <div style="font-size:12px;font-weight:700;color:var(--ink);white-space:nowrap;">${w.prix?`${w.prixIA?'<span title="Prix estimé par IA" style="color:var(--ink3)">~</span>':''}${w.prix} €`:'<span style="color:var(--ink3);font-weight:400;font-size:11px;">— €</span>'}</div>
@@ -4529,48 +4697,58 @@ function showDetail(id,fromChat=false){
     ${w.photo?`<div style="width:100%;background:rgba(0,0,0,.05);border-radius:10px;margin-bottom:${fromInv?'8':'14'}px;display:flex;align-items:center;justify-content:center;overflow:hidden;max-height:${fromInv?'140':'240'}px;"><img src="${w.photo}" style="max-width:100%;max-height:${fromInv?'140':'240'}px;object-fit:contain;display:block;"></div>`:''}
     <span class="badge ${w.couleur}">${colorLabel(w.couleur)}</span>
     <div style="font-family:'Cormorant Garamond',serif;font-size:${fromInv?'18':'22'}px;font-weight:600;margin:${fromInv?'5px 0 2px':'8px 0 4px'};">${w.nom||'—'}</div>
-    ${w.millesime?`<div style="font-size:${fromInv?'14':'18'}px;color:var(--ink2);margin-bottom:${fromInv?'8':'12'}px;">${w.millesime}</div>`:''}
+    ${w.couleur!=='rhum'&&w.millesime?`<div style="font-size:${fromInv?'14':'18'}px;color:var(--ink2);margin-bottom:${fromInv?'8':'12'}px;">${w.millesime}</div>`:''}
+    ${w.couleur==='rhum'&&w.rhumType?`<div style="font-size:${fromInv?'13':'16'}px;color:#7B3010;font-weight:600;margin-bottom:${fromInv?'8':'12'}px;">${w.rhumType}</div>`:''}
     <div style="background:var(--paper2);border-radius:10px;padding:${fromInv?'7px 10px':'10px 14px'};margin-bottom:${fromInv&&w.position?'6':'14'}px;">
       <div style="display:flex;gap:8px;align-items:center;">
         <span style="font-size:${fromInv?'16':'22'}px;">📍</span>
         <div>
           <div style="font-weight:600;font-size:12px;">${cave?.name||'?'} · <b>${w.position||'—'}</b>${cave&&pp&&(cave.clayettes[pp.ci]?.depth||1)===2?` <span style="font-size:10px;background:var(--paper3);border-radius:4px;padding:1px 5px;">${(w.depth||0)===0?'AV':'AR'}</span>`:''}</div>
-          ${pp?`<div style="font-size:10px;color:var(--ink2);">Clayette ${pp.ci+1} · Ligne ${pp.r+1} · Col. ${pp.c+1}${cave&&(cave.clayettes[pp.ci]?.depth||1)===2?' · '+(w.depth===1?'Fond (AR)':'Devant (AV)'):''}</div>`:''}
+          ${pp?`<div style="font-size:10px;color:var(--ink2);">${cave?.clayettes[pp.ci]?.label||('Clayette '+(pp.ci+1))} · Ligne ${pp.r+1} · Col. ${pp.c+1}${cave&&(cave.clayettes[pp.ci]?.depth||1)===2?' · '+(w.depth===1?'Fond (AR)':'Devant (AV)'):''}</div>`:''}
         </div>
       </div>
     </div>
     ${fromInv?buildMiniCaveSchema(w,0):''}
-    ${w.producteur?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🏠 Producteur</span><span style="font-size:13px;font-weight:500;">${w.producteur}</span></div>`:''}
-    ${w.appellation?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🏷️ Appellation</span><span style="font-size:13px;font-weight:500;">${w.appellation}</span></div>`:''}
-    ${w.region?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🗺️ Région</span><span style="font-size:13px;font-weight:500;">${w.region}</span></div>`:''}
-    ${w.cepage?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🍇 Cépage</span><span style="font-size:13px;font-weight:500;">${w.cepage}</span></div>`:''}
-    <div style="display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
-      ${w.prix?`<span style="background:var(--paper2);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">💶 ${w.prix} €</span>`:''}
-      ${w.format&&w.format!=='75cl'?`<span style="background:var(--paper2);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">🍾 ${w.format}</span>`:''}
-      ${w.biologique?`<span style="background:#E6F4E6;color:#2A7A2A;border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">🌿 Bio</span>`:''}
-      ${w.scorePresse?`<span style="background:var(--champ-l);color:var(--champ);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">⭐ ${w.scorePresse}/100</span>`:''}
-      ${w.carafage&&w.carafage!=='non'?`<span style="background:var(--rouge-l);color:var(--rouge-m);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">🫗 Carafage ${w.carafage}</span>`:''}
-    </div>
-    ${w.apogeeDebut&&w.apogeeFin?`
-    <div style="padding:10px 0;border-bottom:1px solid var(--border);">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-        <span style="font-size:12px;color:var(--ink2);">🍷 Maturité</span>
-        ${cfg?`<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:${cfg.color}22;color:${cfg.color};">${cfg.label}</span>`:''}
+    ${w.couleur==='rhum'?`
+      ${w.distillerie?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🏭 Distillerie</span><span style="font-size:13px;font-weight:500;">${w.distillerie}</span></div>`:''}
+      ${w.pays?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🌍 Pays</span><span style="font-size:13px;font-weight:500;">${w.pays}</span></div>`:''}
+      <div style="display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+        ${w.prix?`<span style="background:var(--paper2);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">💶 ${w.prix} €</span>`:''}
+        ${w.scorePresse?`<span style="background:var(--champ-l);color:var(--champ);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">⭐ ${w.scorePresse}/100</span>`:''}
       </div>
-      ${mCtxMsg?`<div style="font-size:12px;color:var(--ink2);margin-bottom:8px;">${mCtxMsg}</div>`:''}
-      <div style="height:6px;background:var(--paper3);border-radius:99px;overflow:hidden;margin-bottom:4px;">
-        <div style="height:100%;width:${pctA}%;background:linear-gradient(90deg,#4CAF50 0%,#FDD835 40%,#FF9800 70%,#E53935 100%);border-radius:99px;"></div>
+    `:`
+      ${w.producteur?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🏠 Producteur</span><span style="font-size:13px;font-weight:500;">${w.producteur}</span></div>`:''}
+      ${w.appellation?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🏷️ Appellation</span><span style="font-size:13px;font-weight:500;">${w.appellation}</span></div>`:''}
+      ${w.region?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🗺️ Région</span><span style="font-size:13px;font-weight:500;">${w.region}</span></div>`:''}
+      ${w.cepage?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🍇 Cépage</span><span style="font-size:13px;font-weight:500;">${w.cepage}</span></div>`:''}
+      <div style="display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+        ${w.prix?`<span style="background:var(--paper2);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">💶 ${w.prix} €</span>`:''}
+        ${w.format&&w.format!=='75cl'?`<span style="background:var(--paper2);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">🍾 ${w.format}</span>`:''}
+        ${w.biologique?`<span style="background:#E6F4E6;color:#2A7A2A;border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">🌿 Bio</span>`:''}
+        ${w.scorePresse?`<span style="background:var(--champ-l);color:var(--champ);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">⭐ ${w.scorePresse}/100</span>`:''}
+        ${w.carafage&&w.carafage!=='non'?`<span style="background:var(--rouge-l);color:var(--rouge-m);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;">🫗 Carafage ${w.carafage}</span>`:''}
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink4);margin-bottom:${w.maturiteHeuristique?'3':'0'}px;">
-        <span>${w.apogeeDebut}</span>
-        <span>Apogée</span>
-        <span>${w.apogeeFin}</span>
-      </div>
-      ${w.maturiteHeuristique?`<div style="font-size:10px;color:var(--ink4);text-align:center;">estimation par millésime</div>`:''}
-    </div>`:''}
+      ${w.apogeeDebut&&w.apogeeFin?`
+      <div style="padding:10px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:12px;color:var(--ink2);">🍷 Maturité</span>
+          ${cfg?`<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:${cfg.color}22;color:${cfg.color};">${cfg.label}</span>`:''}
+        </div>
+        ${mCtxMsg?`<div style="font-size:12px;color:var(--ink2);margin-bottom:8px;">${mCtxMsg}</div>`:''}
+        <div style="height:6px;background:var(--paper3);border-radius:99px;overflow:hidden;margin-bottom:4px;">
+          <div style="height:100%;width:${pctA}%;background:linear-gradient(90deg,#4CAF50 0%,#FDD835 40%,#FF9800 70%,#E53935 100%);border-radius:99px;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink4);margin-bottom:${w.maturiteHeuristique?'3':'0'}px;">
+          <span>${w.apogeeDebut}</span>
+          <span>Apogée</span>
+          <span>${w.apogeeFin}</span>
+        </div>
+        ${w.maturiteHeuristique?`<div style="font-size:10px;color:var(--ink4);text-align:center;">estimation par millésime</div>`:''}
+      </div>`:''}`}
     ${w.dateAchat||w.lieuAchat?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🛒 Achat</span><span style="font-size:13px;font-weight:500;">${[w.dateAchat?new Date(w.dateAchat).toLocaleDateString('fr-FR'):null,w.lieuAchat].filter(Boolean).join(' · ')}</span></div>`:''}
     ${w.notes?`<div style="margin-top:10px;padding:10px;background:var(--paper2);border-radius:10px;font-size:12px;color:var(--ink2);font-style:italic;">"${w.notes}"</div>`:''}`;
   // Boutons dans le footer fixe (toujours visibles, non affectés par la longueur du contenu)
+  const isRhumDetail=w.couleur==='rhum';
   document.getElementById('detail-footer').innerHTML=`
     <div style="display:flex;flex-direction:column;gap:8px;width:100%;">
       <div style="display:flex;gap:8px;">
@@ -4578,10 +4756,10 @@ function showDetail(id,fromChat=false){
         <button class="btn btn-secondary" style="flex:1;pointer-events:auto;" onclick="closeOv('ov-detail');editWine(${w.id})">✏️ Modifier</button>
         <button class="btn btn-secondary" style="width:44px;height:44px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:10px;color:var(--rouge-m);flex-shrink:0;pointer-events:auto;" onclick="removeWine(${w.id})">🗑️</button>
       </div>
-      <button onclick="closeOv('ov-detail');getAccords(${w.id})" style="width:100%;pointer-events:auto;display:flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:12px;padding:12px 16px;cursor:pointer;background:linear-gradient(135deg,#5C1A2E,#8B1A2E);color:#fff;font-family:'Outfit',sans-serif;font-size:13px;font-weight:600;letter-spacing:.3px;box-shadow:0 3px 12px rgba(92,26,46,.35);transition:opacity .15s;" onmousedown="this.style.opacity='.82'" onmouseup="this.style.opacity='1'">
+      ${!isRhumDetail?`<button onclick="closeOv('ov-detail');getAccords(${w.id})" style="width:100%;pointer-events:auto;display:flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:12px;padding:12px 16px;cursor:pointer;background:linear-gradient(135deg,#5C1A2E,#8B1A2E);color:#fff;font-family:'Outfit',sans-serif;font-size:13px;font-weight:600;letter-spacing:.3px;box-shadow:0 3px 12px rgba(92,26,46,.35);transition:opacity .15s;" onmousedown="this.style.opacity='.82'" onmouseup="this.style.opacity='1'">
         <span style="font-size:16px;">🍽️</span>
         <span>Accords Mets &amp; Vins</span>
-      </button>
+      </button>`:''}
     </div>`;
   openOv('ov-detail');
 }
@@ -4987,7 +5165,7 @@ function renderCavePage(){
     <div style="background:var(--white);border-radius:16px;padding:14px 14px 12px;margin-bottom:10px;box-shadow:var(--shadow-s);">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
         <div style="display:flex;align-items:baseline;gap:6px;">
-          <span style="font-size:14px;font-weight:600;color:var(--ink);">${isVrac?'Rangement libre':('Clayette '+(ci+1))}</span>
+          <span style="font-size:14px;font-weight:600;color:var(--ink);">${isVrac?'Rangement libre':(cl.label||('Clayette '+(ci+1)))}</span>
           <span style="font-size:11px;color:var(--ink3);">${isVrac?'capacité illimitée':(cl.rows+'×'+cl.cols+(clDepth===2?' ×2':''))}</span>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
@@ -5360,6 +5538,7 @@ function nav(page){
   if(page==='add'){
     // Réinitialiser le formulaire sauf si on vient d'editWine() (editingWineId déjà fixé)
     if(editingWineId===null) resetAddForm();
+    syncFormToBottleType();
     renderPlacementPreview();
   }
 }
@@ -5416,9 +5595,12 @@ function renderSupercave(){
   ];
   const maxCouleur=Math.max(...couleurs.map(c=>wines.filter(w=>w.couleur===c.key).length));
 
-  // ── 3. Par région ──
+  // ── 3. Par région / pays (vin + rhum) ──
   const regMap={};
-  wines.forEach(w=>{if(w.region)regMap[w.region]=(regMap[w.region]||0)+1;});
+  wines.forEach(w=>{
+    const r=w.couleur==='rhum'?w.pays:w.region;
+    if(r)regMap[r]=(regMap[r]||0)+1;
+  });
   const regions=Object.entries(regMap).sort((a,b)=>b[1]-a[1]);
   const maxReg=regions[0]?.[1]||1;
 
@@ -5433,9 +5615,12 @@ function renderSupercave(){
   ];
   const maxAge=Math.max(...groupes.map(g=>wines.filter(w=>g.test(w.millesime)).length));
 
-  // ── 5b. Top 15 producteurs ──
+  // ── 5b. Top 15 producteurs (vin + distilleries rhum) ──
   const prodMap={};
-  wines.forEach(w=>{if(w.producteur&&w.producteur.trim())prodMap[w.producteur.trim()]=(prodMap[w.producteur.trim()]||0)+1;});
+  wines.forEach(w=>{
+    const p=w.couleur==='rhum'?w.distillerie:w.producteur;
+    if(p&&p.trim())prodMap[p.trim()]=(prodMap[p.trim()]||0)+1;
+  });
   const topProd=Object.entries(prodMap).sort((a,b)=>b[1]-a[1]).slice(0,15);
   const maxProd=topProd[0]?.[1]||1;
 
@@ -5535,7 +5720,8 @@ function renderSupercave(){
         const cfg=MATURITE_CFG[st];
         const bucket=wines.filter(w=>maturiteStatus(w)===st);
         const n=bucket.length;
-        return`<div style="background:var(--paper2);border-radius:12px;padding:11px 12px;border-left:3px solid ${cfg.color};">
+        return`<div onclick="setInvMaturite('${st}');nav('inv');" style="background:var(--paper2);border-radius:12px;padding:11px 12px;border-left:3px solid ${cfg.color};cursor:pointer;transition:background .15s;"
+          onmouseover="this.style.background='var(--paper3)'" onmouseout="this.style.background='var(--paper2)'">
           <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
             <span style="width:7px;height:7px;border-radius:50%;background:${cfg.color};display:inline-block;flex-shrink:0;"></span>
             <span style="font-size:10px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.6px;">${cfg.label}</span>
@@ -5547,9 +5733,38 @@ function renderSupercave(){
     </div>
   </div>
 
+  <!-- RHUM PAR TYPE -->
+  ${(()=>{
+    const rhumBottles=wines.filter(w=>w.couleur==='rhum');
+    if(!rhumBottles.length)return'';
+    const RHUM_TYPES=['Punch','Liqueur','Blanc','Paille','VO','VSOP','XO','Réserve'];
+    const typeMap={};
+    rhumBottles.forEach(w=>{
+      const t=w.rhumType||'Autre';
+      typeMap[t]=(typeMap[t]||0)+1;
+    });
+    const typeEntries=RHUM_TYPES.filter(t=>typeMap[t]).map(t=>[t,typeMap[t]]);
+    if(typeMap['Autre'])typeEntries.push(['Autre',typeMap['Autre']]);
+    const totalRhum=rhumBottles.length;
+    return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;margin-bottom:12px;">🥃 Cave à Rhum</div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">${totalRhum} bouteille${totalRhum>1?'s':''} · ${[...new Set(rhumBottles.map(w=>w.distillerie).filter(Boolean))].length} distillerie${[...new Set(rhumBottles.map(w=>w.distillerie).filter(Boolean))].length>1?'s':''}</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
+        ${typeEntries.map(([t,n])=>`
+        <div onclick="setInvFilter('rhum');setInvRhumType('${t}');nav('inv');" style="background:var(--paper2);border-radius:12px;padding:11px 12px;border-left:3px solid #A0522D;cursor:pointer;transition:background .15s;"
+          onmouseover="this.style.background='var(--paper3)'" onmouseout="this.style.background='var(--paper2)'">
+          <div style="font-size:10px;font-weight:700;color:#7B3010;text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px;">${t}</div>
+          <div style="font-size:26px;font-weight:700;font-family:'Cormorant Garamond',serif;color:#A0522D;line-height:1.1;">${n}</div>
+          <div style="font-size:10px;color:var(--ink3);margin-top:3px;">${rhumBottles.filter(w=>(w.rhumType||'Autre')===t).slice(0,2).map(w=>w.nom.slice(0,20)).join('<br>')||'—'}</div>
+        </div>`).join('')}
+      </div>
+      <button onclick="setInvFilter('rhum');nav('inv');" style="margin-top:10px;width:100%;background:transparent;border:1px solid #A0522D;border-radius:8px;padding:7px 10px;font-size:12px;color:#7B3010;cursor:pointer;">Voir tout l'inventaire rhum →</button>
+    </div>`;
+  })()}
+
   <!-- MAINTENANCE : vins sans millésime -->
   ${(()=>{
-    const sansMillesime=wines.filter(w=>!w.millesime).sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
+    const sansMillesime=wines.filter(w=>!w.millesime&&w.couleur!=='rhum').sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
     if(!sansMillesime.length)return'';
     return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;border-left:3px solid #9C27B0;">
       <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;">
@@ -5577,7 +5792,7 @@ function renderSupercave(){
 
   <!-- MAINTENANCE : vins sans période d'apogée -->
   ${(()=>{
-    const sansMat=wines.filter(w=>!w.apogeeDebut||!w.apogeeFin);
+    const sansMat=wines.filter(w=>w.couleur!=='rhum'&&(!w.apogeeDebut||!w.apogeeFin));
     if(!sansMat.length)return'';
     return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;border-left:3px solid #FF9800;">
       <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;">
@@ -6373,9 +6588,19 @@ function buildTransferManualHtml(){
 
   // ── Étape 3 : cave cible (dès qu'un vin est sélectionné) ──
   if(transferManualWineIds.length>0){
-    const otherCaves=allCaves.filter(c=>c.id!==transferManualSrcId);
+    // Restriction rhum : toutes les bouteilles sélectionnées sont rhum → cave rhum seulement, sinon caves vin seulement
+    const selWines=transferManualWineIds.map(id=>db.wines.find(w=>w.id===id)).filter(Boolean);
+    const selIsRhum=selWines.every(w=>w.couleur==='rhum');
+    const selIsWine=selWines.every(w=>w.couleur!=='rhum');
+    const otherCaves=allCaves.filter(c=>{
+      if(c.id===transferManualSrcId)return false;
+      if(selIsRhum&&!c.isRhum)return false;  // rhum → cave rhum seulement
+      if(selIsWine&&c.isRhum)return false;    // vin → pas de cave rhum
+      return true;
+    });
     if(!otherCaves.length){
-      h+=`<div id="transfer-dst-section" style="background:var(--paper2);border-radius:12px;padding:14px;font-size:13px;color:var(--ink2);margin-bottom:14px;">Aucune autre cave disponible comme destination.</div>`;
+      const msgRhum=selIsRhum?'Aucune cave à rhum disponible comme destination.':'Aucune cave compatible disponible.';
+      h+=`<div id="transfer-dst-section" style="background:var(--paper2);border-radius:12px;padding:14px;font-size:13px;color:var(--ink2);margin-bottom:14px;">${msgRhum}</div>`;
     }else{
       h+=`<div id="transfer-dst-section" style="margin-bottom:14px;">
         <div style="font-size:12px;font-weight:600;color:var(--ink3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;">3 · Cave cible</div>
@@ -6385,7 +6610,7 @@ function buildTransferManualHtml(){
             const n=winesOfCave(c.id).length;
             const cap=c.clayettes.reduce((s,cl)=>s+cl.rows*cl.cols,0);
             const dispo=cap-n;
-            return`<option value="${c.id}" ${transferManualDstId===c.id?'selected':''}>${c.name}${c.lieu?' ('+c.lieu+')':''}${c.type?' · '+c.type:''} — ${dispo} place${dispo>1?'s':''} libre${dispo>1?'s':''}</option>`;
+            return`<option value="${c.id}" ${transferManualDstId===c.id?'selected':''}>${c.name}${c.lieu?' ('+c.lieu+')':''}${c.type?' · '+c.type:''}${c.isRhum?' 🥃':''} — ${dispo} place${dispo>1?'s':''} libre${dispo>1?'s':''}</option>`;
           }).join('')}
         </select>
       </div>`;
