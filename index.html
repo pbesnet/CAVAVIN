@@ -1472,9 +1472,24 @@ function _enterDemoOnlyMode(user){
   }
 }
 
+// — Décode le payload d'un JWT sans vérification de signature (base64 public) —
+function _jwtPayload(token){
+  try{const p=token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(atob(p));}catch(e){return null;}
+}
+
 // — Init backend au démarrage —
 async function initBackend(){
   const timeout=t=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),t));
+
+  // ── Détection rapide demo_only depuis le JWT local (évite le flash de données prod) ──
+  if(_jwtToken){
+    const jwtCached=_jwtPayload(_jwtToken);
+    if(jwtCached?.demo_only===true){
+      _enterDemoOnlyMode({id:jwtCached.sub,email:jwtCached.email,role:jwtCached.role,demo_only:true});
+      return;
+    }
+  }
+
   // ── Chemin optimiste (stale-while-revalidate) ──────────────────────────
   // Si on a des données locales valides + un token stocké → affiche l'app immédiatement
   const hasCachedData=db.caves.length>0&&!_isDemoData(db);
