@@ -2424,12 +2424,13 @@ function _renderCaveGrid(cave,allWines,{batchPosSet=new Set(),forcedPos=null,sug
   // Helper : trouver l'index d'une suggestion "pos|dN" pour la rangée dvTarget (0=AV, 1=AR)
   function _sugIdx(arr,p,dvTarget){return arr.findIndex(s=>{const[sp,sd]=s.split('|d');return sp===p&&(sd===undefined?0:+sd)===dvTarget;});}
 
-  let html='<div style="display:flex;flex-direction:column;gap:2px;">';
+  let html='<div style="display:flex;flex-direction:column;gap:6px;">';
   cave.clayettes.forEach((cl,ci)=>{
     const clDepthG=cl.depth||1;
-    const clLabel=cl.label||('C'+(ci+1));
-    html+=`<div style="display:flex;align-items:center;gap:6px;">`;
-    html+=`<div style="font-size:7px;font-weight:700;color:var(--ink4);width:auto;max-width:40px;text-align:right;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${cl.label||('Clayette '+(ci+1))}">${clLabel}</div>`;
+    const clLabel=cl.label||('Clayette '+(ci+1));
+    // Bloc clayette : label au-dessus, grille en dessous
+    html+=`<div style="display:flex;flex-direction:column;gap:2px;">`;
+    html+=`<div style="font-size:8px;font-weight:700;color:var(--ink3);letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${clLabel}">${clLabel}</div>`;
     html+=`<div style="display:flex;flex-direction:column;gap:${gap}px;">`;
     for(let r=0;r<cl.rows;r++){
       // Pour depth=2 : 2 sous-rangées par ligne (AR en haut = dv=1, AV en bas = dv=0)
@@ -2481,9 +2482,9 @@ function _renderCaveGrid(cave,allWines,{batchPosSet=new Set(),forcedPos=null,sug
         html+='</div>';
       }
     }
-    html+='</div></div>';
+    html+='</div></div>'; // ferme grille + bloc clayette
     if(ci<cave.clayettes.length-1)
-      html+=`<div style="height:1px;background:var(--paper3);margin:1px 0 1px 18px;"></div>`;
+      html+=`<div style="height:1px;background:var(--paper3);margin:2px 0;"></div>`;
   });
   html+='</div>';
   return html;
@@ -3441,7 +3442,7 @@ function fabTouchMove(e){
   e.preventDefault();
 }
 function fabTouchEnd(e){
-  if(!_fabDragging){nav('add');}
+  if(!_fabDragging){navAddFromCaveFab();}
   else{
     const fab=document.getElementById('cave-fab');
     try{localStorage.setItem('fab_pos',JSON.stringify({l:parseInt(fab.style.left),t:parseInt(fab.style.top)}));}catch(_){}
@@ -3891,16 +3892,21 @@ function syncFormToBottleType(){
   const couleurEl=document.getElementById('add-couleur');
   const cave=getCave(activeCave);
   const isRhumCave=!!(cave?.isRhum);
-  // Si cave rhum, forcer couleur rhum et désactiver le select
-  if(isRhumCave){
+  // Forcer couleur rhum seulement si on vient directement d'une cave rhum (FAB ou slot)
+  // Depuis le nav "Ajouter", on laisse le choix libre (rouge par défaut)
+  if(isRhumCave&&_addFromCave){
     if(couleurEl){couleurEl.value='rhum';couleurEl.disabled=true;}
-  } else {
+  } else if(!isRhumCave){
     if(couleurEl){
       couleurEl.disabled=false;
-      // Si on était sur rhum et la cave n'est pas rhum, revenir à rouge
+      // Si la cave active n'est pas rhum, revenir à rouge si rhum était sélectionné
       if(couleurEl.value==='rhum')couleurEl.value='rouge';
     }
+  } else {
+    // Cave rhum mais navigation directe → laisser le select actif (l'utilisateur choisit)
+    if(couleurEl){couleurEl.disabled=false;}
   }
+  _addFromCave=false; // consommer le flag
   const isRhum=couleurEl?.value==='rhum';
   const WINE_IDS=['wf-millesime','wf-region','wf-appellation','wf-cepage','wf-producteur','wf-format','wf-dateachat','wf-lieuachat','wf-carafage','wf-bio'];
   WINE_IDS.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=isRhum?'none':'';});
@@ -3918,8 +3924,10 @@ function syncFormToBottleType(){
 }
 function onAddCouleurChange(){renderPlacementPreview();syncFormToBottleType();}
 
-// Navigation vers le form ajout depuis un emplacement vide dans la cave (force la position)
-function navAddFromSlot(pos){_pendingForcedPosition=pos;nav('add');}
+// Navigation vers le form ajout depuis un emplacement vide dans la cave (force la position + contexte cave)
+function navAddFromSlot(pos){_pendingForcedPosition=pos;_addFromCave=true;nav('add');}
+// Navigation depuis le FAB de la cave (contexte cave — force rhum si cave rhum)
+function navAddFromCaveFab(){_addFromCave=true;nav('add');}
 
 function updateWizMode(){
   const mode=document.getElementById('wc-mode').value;
@@ -4830,6 +4838,7 @@ let _aiApogeeFin=null;
 let _forcedPosition=null;      // position forcée (mode ÉDITION uniquement)
 let _forcedPlacements=[];      // [{caveId,pos}] — placements forcés multi-cave (mode AJOUT)
 let _pendingForcedPosition=null; // position à forcer au prochain nav('add') depuis un slot vide
+let _addFromCave=false;          // true si on vient du FAB ou d'un slot de cave (force rhum si cave rhum)
 
 // Redimensionne une image base64 à maxSide px max (pour alléger les requêtes IA)
 function resizeImage(b64,maxSide=600){
