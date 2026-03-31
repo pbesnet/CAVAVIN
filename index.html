@@ -4887,16 +4887,24 @@ RÈGLES :
 JSON strict, aucun autre texte.`}
       ]}],800);
       const info=JSON.parse(r.replace(/```json|```/g,'').trim());
-      const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null)el.value=v;};
+      // S'assurer que les champs rhum sont visibles AVANT de les remplir
+      syncFormToBottleType();
       _aiFilledPrix=info.prix||null;
       // Ne jamais changer la couleur — reste 'rhum'
-      set('add-nom',info.nom);
-      set('add-prix',info.prix);
+      const setF=(id,v)=>{const el=document.getElementById(id);if(el&&v!==null&&v!==undefined)el.value=v;};
+      setF('add-nom',info.nom||'');
+      setF('add-prix',info.prix||'');
       const scoreEl=document.getElementById('add-score');
-      if(scoreEl)scoreEl.value=info.scorePresse||80; // défaut 80 si non trouvé
-      const distEl=document.getElementById('add-distillerie');if(distEl&&info.distillerie)distEl.value=info.distillerie;
-      const paysEl=document.getElementById('add-pays');if(paysEl&&info.pays)paysEl.value=info.pays;
-      const typeEl=document.getElementById('add-rhum-type');if(typeEl&&info.rhumType)typeEl.value=info.rhumType;
+      if(scoreEl)scoreEl.value=info.scorePresse||80;
+      // Distillerie, pays, type — toujours écrire même si vide
+      setF('add-distillerie',info.distillerie||'');
+      setF('add-pays',info.pays||'');
+      // Pour le select rhumType : vérifier que l'option existe
+      const typeEl=document.getElementById('add-rhum-type');
+      if(typeEl&&info.rhumType){
+        const opt=[...typeEl.options].find(o=>o.value===info.rhumType||o.text===info.rhumType);
+        if(opt)typeEl.value=opt.value;
+      }
       renderPlacementPreview();
       document.getElementById('ai-status-txt').innerHTML=`✅ Rhum identifié !&nbsp;&nbsp;<span style="font-size:11px;color:var(--ink2);">${[info.distillerie,info.pays,info.rhumType].filter(Boolean).join(' · ')}</span>`;
       showToast('✅ Rhum identifié par l\'IA');
