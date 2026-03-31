@@ -2569,8 +2569,9 @@ function topPositions(cave,wine,n){
 
 function setForcedPos(pos,depth=0){
   if(editingWineId!==null){
-    // Mode ÉDITION : position unique (depth ignoré — bestPosition gère AV/AR)
-    _forcedPosition=(_forcedPosition===pos)?null:pos;
+    // Mode ÉDITION : toggler la position forcée en conservant la profondeur (AV/AR)
+    if(_forcedPosition===pos&&_forcedPosDepth===depth){_forcedPosition=null;_forcedPosDepth=0;}
+    else{_forcedPosition=pos;_forcedPosDepth=depth;}
   } else {
     // Mode AJOUT : multi-cave — on accumule jusqu'à qty emplacements, avec depth
     const qty=Math.max(1,Math.min(100,parseInt(document.getElementById('add-qty')?.value)||1));
@@ -2599,7 +2600,7 @@ function setForcedNewPos(pos,depth=0){
 }
 
 // ── Rendu générique d'une grille de cave ──────────────────────────────
-function _renderCaveGrid(cave,allWines,{batchPosSet=new Set(),forcedPos=null,suggested=[],extraForcedPositions=[],extraSuggested=[],extraDelta=0,sz=14,gap=2,onClickFn='setForcedPos',editMode=false}={}){
+function _renderCaveGrid(cave,allWines,{batchPosSet=new Set(),forcedPos=null,forcedPosDepth=null,suggested=[],extraForcedPositions=[],extraSuggested=[],extraDelta=0,sz=14,gap=2,onClickFn='setForcedPos',editMode=false}={}){
   // Helper : trouver la Nth occurrence de `val` dans array (0-based), retourne l'index dans array
   function nthIdx(arr,val,n){let k=0;for(let i=0;i<arr.length;i++){if(arr[i]===val){if(k===n)return i;k++;}}return -1;}
   // Helper : trouver l'index d'une suggestion "pos|dN" pour la rangée dvTarget (0=AV, 1=AR)
@@ -2629,8 +2630,8 @@ function _renderCaveGrid(cave,allWines,{batchPosSet=new Set(),forcedPos=null,sug
           // Pour depth=2 : on vérifie la rangée exacte (AV=0, AR=1) pour les états batch/forcé
           const batchKey=clDepthG===2?pos+'|d'+dv:pos;
           const isBatch=batchPosSet.has(batchKey)||batchPosSet.has(pos);
-          // forcedPos (mode édition bouteille unique) : affiché uniquement sur AV (dv=0) pour depth=2
-          const isForced=forcedPos===pos&&(clDepthG!==2||dv===0);
+          // forcedPos (mode édition bouteille unique) : affiché sur la rangée AV/AR choisie (forcedPosDepth)
+          const isForced=forcedPos===pos&&(clDepthG!==2||(forcedPosDepth!==null?dv===forcedPosDepth:dv===0));
           // extraForcedPositions : tableau de clés "pos|dN" — même logique que suggestions
           const extraForcedIdx=_sugIdx(extraForcedPositions,pos,dv);
           const isForcedExtra=extraForcedIdx>=0;
@@ -2678,7 +2679,7 @@ function renderPlacementPreview(){
 
   const couleurForCave=document.getElementById('add-couleur')?.value;
   const isRhumForm=couleurForCave==='rhum';
-  const selectableCaves=db.caves.filter(c=>!c.vrac&&(isRhumForm?c.isRhum:!c.isRhum));
+  const selectableCaves=db.caves.filter(c=>isRhumForm?c.isRhum:!c.isRhum);
   if(!selectableCaves.length){container.style.display='none';return;}
   if(!activeCave||!getCave(activeCave)||!!getCave(activeCave)?.isRhum!==isRhumForm){
     activeCave=selectableCaves[0]?.id||activeCave;
@@ -2695,7 +2696,7 @@ function renderPlacementPreview(){
   const mainLabel=isEditMode?'Nouvelle position du vin':'Cave cible';
   let html=`<div style="margin-bottom:10px;">
     <div style="font-size:10px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">${mainLabel}</div>
-    <select onchange="activeCave=+this.value;if(editingWineId!==null){_forcedPosition=null;}updateTopbarSel();renderPlacementPreview();" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;background:var(--white);color:var(--ink);font-family:var(--font);">
+    <select onchange="activeCave=+this.value;if(editingWineId!==null){_forcedPosition=null;_forcedPosDepth=0;}updateTopbarSel();renderPlacementPreview();" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;background:var(--white);color:var(--ink);font-family:var(--font);">
       ${selectableCaves.map(c=>`<option value="${c.id}" ${c.id===activeCave?'selected':''}>${c.name}${c.lieu?' · '+c.lieu:''}${c.type?' ('+c.type+')':''}${c.isRhum?' 🥃':''}</option>`).join('')}
     </select>
   </div>`;
@@ -2720,8 +2721,15 @@ function renderPlacementPreview(){
     ?allWines.filter(x=>x.id!==editingWineId)
     :allWines;
 
-  // Vérifier position forcée encore libre
-  if(_forcedPosition&&allWinesForSchema.find(w=>w.position===_forcedPosition))_forcedPosition=null;
+  // Vérifier position forcée encore libre (depth-aware pour caves double rangée)
+  if(_forcedPosition){
+    const _fpCl0=cave?.clayettes[parsePos(_forcedPosition)?.ci];
+    const _fpMaxD0=_fpCl0?.depth||1;
+    const _fpTaken=_fpMaxD0===2
+      ?allWinesForSchema.find(w=>w.position===_forcedPosition&&(w.depth||0)===_forcedPosDepth)
+      :allWinesForSchema.find(w=>w.position===_forcedPosition);
+    if(_fpTaken){_forcedPosition=null;_forcedPosDepth=0;}
+  }
 
   // En mode AJOUT : suggestions par algo
   // En mode ÉDITION : la "suggestion" = position actuelle du vin (si même cave), sinon bestPosition
@@ -2740,10 +2748,13 @@ function renderPlacementPreview(){
   if(isEditMode){
     if(_forcedPosition){
       const pp=parsePos(_forcedPosition);
+      const _fpCl=pp?cave.clayettes[pp.ci]:null;
+      const _fpIsDouble=(_fpCl?.depth||1)===2;
+      const _fpDepthLabel=_fpIsDouble?` · ${_forcedPosDepth===0?'AV (devant)':'AR (fond)'}` :'';
       html+=`<div style="font-size:11px;font-weight:600;color:#2060D0;margin-bottom:4px;display:flex;align-items:center;gap:4px;">
         <span style="width:6px;height:6px;border-radius:50%;background:#2060D0;display:inline-block;"></span>
-        Nouvelle position — ${pp?(cave.clayettes[pp.ci]?.label||('Clayette '+(pp.ci+1))):'?'} · L${pp?pp.r+1:'?'} · C${pp?pp.c+1:'?'}
-        <button onclick="_forcedPosition=null;renderPlacementPreview();" style="margin-left:auto;font-size:10px;background:var(--paper2);border:1px solid var(--border);border-radius:6px;padding:2px 7px;color:var(--ink2);cursor:pointer;font-family:var(--font);">↺ Garder actuelle</button>
+        Nouvelle position — ${pp?(cave.clayettes[pp.ci]?.label||('Clayette '+(pp.ci+1))):'?'} · L${pp?pp.r+1:'?'} · C${pp?pp.c+1:'?'}${_fpDepthLabel}
+        <button onclick="_forcedPosition=null;_forcedPosDepth=0;renderPlacementPreview();" style="margin-left:auto;font-size:10px;background:var(--paper2);border:1px solid var(--border);border-radius:6px;padding:2px 7px;color:var(--ink2);cursor:pointer;font-family:var(--font);">↺ Garder actuelle</button>
       </div>`;
     } else if(showingOriginalCave&&_editOriginalPos){
       html+=`<div style="font-size:11px;color:var(--ink3);margin-bottom:6px;">🟢 Position actuelle — clique sur un emplacement libre pour déplacer le vin</div>`;
@@ -2807,6 +2818,7 @@ function renderPlacementPreview(){
   html+=_renderCaveGrid(cave,allWinesForSchema,{
     batchPosSet,
     forcedPos:_gridForcedPos,
+    forcedPosDepth:isEditMode?_forcedPosDepth:null,
     suggested:_gridSuggested,
     extraForcedPositions:_gridExtraForced,
     extraSuggested:_gridExtraSuggested,
@@ -3074,7 +3086,7 @@ let _forcedExtraPositions=[];   // positions forcées manuellement pour les bout
 function editWine(id){
   const w=db.wines.find(x=>x.id===id);if(!w)return;
   editingWineId=id;
-  _forcedPosition=null;
+  _forcedPosition=null;_forcedPosDepth=0;
   _editOriginalPos=w.position||null;
   _editOriginalCaveId=w.caveId;
   _editExtraCaveId=null;
@@ -3116,6 +3128,10 @@ function editWine(id){
   // UI mode édition : pointer sur cave actuelle
   activeCave=w.caveId;
   const btn=document.getElementById('add-submit-btn');if(btn)btn.textContent='💾 Enregistrer les modifications';
+  // Réinitialiser l'état AI pour éviter qu'une analyse photo précédente ne réinitialise la maturité
+  _aiApogeeDebut=null;
+  _aiApogeeFin=null;
+  _aiFilledPrix=null;
   nav('add');
   // Titre et placement APRÈS nav() (nav() resetAddForm si editingWineId===null, mais editingWineId est déjà fixé)
   const tb=document.getElementById('topbar-title');if(tb)tb.textContent=w.couleur==='rhum'?'✏️ Modifier le rhum':'✏️ Modifier le vin';
@@ -3129,7 +3145,7 @@ function resetAddForm(){
   _aiFilledPrix=null;
   _aiApogeeDebut=null;
   _aiApogeeFin=null;
-  _forcedPosition=null;
+  _forcedPosition=null;_forcedPosDepth=0;
   _forcedPlacements=[];
   bottleB64=null;
   selColor=null;
@@ -3219,25 +3235,45 @@ function saveWine(){
     const editId=editingWineId;
     // 1. Mettre à jour UNIQUEMENT la bouteille éditée (pas le lot)
     const bidx=db.wines.findIndex(x=>x.id===editId);
-    if(bidx>=0)db.wines[bidx]={...db.wines[bidx],...fields};
+    if(bidx>=0){
+      const prev=db.wines[bidx];
+      // Préserver la maturité sauf si l'IA vient de la recalculer OU si le millésime a changé
+      // (un changement de prix, nom, appellation, etc. ne doit JAMAIS effacer l'apogée)
+      const millesimeChanged=fields.millesime!==prev.millesime;
+      if(!_aiApogeeDebut&&!millesimeChanged){
+        // Aucun recalcul IA, millésime inchangé → conserver les valeurs existantes
+        fields.apogeeDebut=prev.apogeeDebut;
+        fields.apogeeFin=prev.apogeeFin;
+        fields.maturiteUpdatedAt=prev.maturiteUpdatedAt;
+      }
+      // Si millésime changé sans recalcul IA → on remet à null pour déclencher un calcul futur
+      // (fields.apogeeDebut est déjà null dans ce cas puisque _aiApogeeDebut=null)
+      db.wines[bidx]={...prev,...fields};
+    }
     // 2. Repositionnement si cave ou position changée
     const editedWine=db.wines.find(x=>x.id===editId);
     const caveChanged=activeCave!==_editOriginalCaveId;
-    const posChanged=_forcedPosition&&_forcedPosition!==_editOriginalPos;
+    // posChanged : nouvelle position OU même position mais profondeur différente (AV→AR ou inversement)
+    const posChanged=_forcedPosition&&(_forcedPosition!==_editOriginalPos||_forcedPosDepth!==(editedWine?.depth||0));
     if(editedWine&&(caveChanged||posChanged)){
       cascadeAfterRemoval(editedWine);
       if(caveChanged){
         const newCave=getCave(activeCave);
         let newPos=null;let newDepth=0;
         if(_forcedPosition){
-          // Position forcée depth-aware : essayer AV (0) puis AR (1)
+          // Position forcée depth-aware : utiliser la profondeur explicitement choisie (AV/AR)
           const fpPp=parsePos(_forcedPosition);
           const fpCl=fpPp?newCave?.clayettes[fpPp.ci]:null;
           const fpMaxD=fpCl?.depth||1;
-          const taken0=db.wines.find(w=>w.caveId===activeCave&&w.position===_forcedPosition&&(w.depth||0)===0);
-          const taken1=fpMaxD===2?db.wines.find(w=>w.caveId===activeCave&&w.position===_forcedPosition&&(w.depth||0)===1):true;
-          if(!taken0){newPos=_forcedPosition;newDepth=0;}
-          else if(fpMaxD===2&&!taken1){newPos=_forcedPosition;newDepth=1;}
+          if(fpMaxD===2){
+            const expD=_forcedPosDepth;
+            const takenExp=db.wines.find(w=>w.caveId===activeCave&&w.position===_forcedPosition&&(w.depth||0)===expD);
+            if(!takenExp){newPos=_forcedPosition;newDepth=expD;}
+            else{const otD=expD===0?1:0;const takenOther=db.wines.find(w=>w.caveId===activeCave&&w.position===_forcedPosition&&(w.depth||0)===otD);if(!takenOther){newPos=_forcedPosition;newDepth=otD;}}
+          } else {
+            const taken0=db.wines.find(w=>w.caveId===activeCave&&w.position===_forcedPosition);
+            if(!taken0){newPos=_forcedPosition;newDepth=0;}
+          }
         }
         if(!newPos){const bp=bestPosition(newCave,editedWine);newPos=bp?.pos||null;newDepth=bp?.depth||0;}
         editedWine.caveId=activeCave;editedWine.position=newPos||null;editedWine.depth=newDepth;
@@ -3246,10 +3282,16 @@ function saveWine(){
         const fpPp2=parsePos(_forcedPosition);
         const fpCl2=fpPp2?getCave(editedWine.caveId)?.clayettes[fpPp2.ci]:null;
         const fpMaxD2=fpCl2?.depth||1;
-        const tk0=db.wines.find(w=>w.id!==editId&&w.caveId===editedWine.caveId&&w.position===_forcedPosition&&(w.depth||0)===0);
-        const tk1=fpMaxD2===2?db.wines.find(w=>w.id!==editId&&w.caveId===editedWine.caveId&&w.position===_forcedPosition&&(w.depth||0)===1):true;
-        if(!tk0){editedWine.position=_forcedPosition;editedWine.depth=0;}
-        else if(fpMaxD2===2&&!tk1){editedWine.position=_forcedPosition;editedWine.depth=1;}
+        if(fpMaxD2===2){
+          // Utiliser la profondeur explicitement choisie (AV/AR)
+          const expD2=_forcedPosDepth;
+          const tkExp=db.wines.find(w=>w.id!==editId&&w.caveId===editedWine.caveId&&w.position===_forcedPosition&&(w.depth||0)===expD2);
+          if(!tkExp){editedWine.position=_forcedPosition;editedWine.depth=expD2;}
+          else{const otD2=expD2===0?1:0;const tkOt=db.wines.find(w=>w.id!==editId&&w.caveId===editedWine.caveId&&w.position===_forcedPosition&&(w.depth||0)===otD2);if(!tkOt){editedWine.position=_forcedPosition;editedWine.depth=otD2;}}
+        } else {
+          const tk0=db.wines.find(w=>w.id!==editId&&w.caveId===editedWine.caveId&&w.position===_forcedPosition);
+          if(!tk0){editedWine.position=_forcedPosition;editedWine.depth=0;}
+        }
       }
       // NB : les autres bouteilles du lot NE sont PAS déplacées
     }
@@ -3311,7 +3353,7 @@ function saveWine(){
     }
     _editBatchIds=[];
     editingWineId=null;
-    _forcedPosition=null;
+    _forcedPosition=null;_forcedPosDepth=0;
     _forcedPlacements=[];
     _editExtraCaveId=null;
     _forcedExtraPositions=[];
@@ -5057,6 +5099,7 @@ let _aiFilledPrix=null;    // prix estimé par IA lors du dernier doAiFill
 let _aiApogeeDebut=null;   // apogée fournie par l'IA (doAiFill) — transmise à saveWine
 let _aiApogeeFin=null;
 let _forcedPosition=null;      // position forcée (mode ÉDITION uniquement)
+let _forcedPosDepth=0;         // profondeur explicite choisie par l'utilisateur en mode édition (0=AV, 1=AR)
 let _forcedPlacements=[];      // [{caveId,pos}] — placements forcés multi-cave (mode AJOUT)
 let _pendingForcedPosition=null; // position à forcer au prochain nav('add') depuis un slot vide
 let _addFromCave=false;          // true si on vient du FAB ou d'un slot de cave (force rhum si cave rhum)
@@ -6762,6 +6805,7 @@ let transferManualWineIds=[];    // vins sélectionnés (multi-sélection)
 let transferManualDstId=null;    // cave cible sélectionnée
 let transferManualPlanned=[];    // positions planifiées [{wineId,pos,wine}]
 let transferManualSearch='';     // filtre texte sur la liste des vins (étape 2)
+let transferManualMaturiteFilter=null; // null=tous, 'maturation','debut_apogee','apogee','declin'
 let transferRecoVirtuals={};     // positions virtuelles IA pour hachures: caveId→[{position,...}]
 let _transferForcedPos={};       // positions forcées manuellement dans la vue transfert reco : clé→pos
 let _manualForcedPos={};         // positions forcées dans le transfert manuel : wineId→pos
@@ -7041,7 +7085,9 @@ function _renderTransferWineList(){
   if(srcId===null)return;
   const q=transferManualSearch.toLowerCase().trim();
   const srcWines=winesOfCave(srcId);
-  const filtered=q?srcWines.filter(w=>[w.nom,w.millesime,w.region,w.appellation,w.producteur,w.cepage].filter(Boolean).join(' ').toLowerCase().includes(q)):srcWines;
+  const isRhumSrc=!!getCave(srcId)?.isRhum;
+  const filteredByText=q?srcWines.filter(w=>[w.nom,w.millesime,w.region,w.appellation,w.producteur,w.cepage].filter(Boolean).join(' ').toLowerCase().includes(q)):srcWines;
+  const filtered=(!isRhumSrc&&transferManualMaturiteFilter)?filteredByText.filter(w=>maturiteStatus(w)===transferManualMaturiteFilter):filteredByText;
   const nbSel=transferManualWineIds.length;
   if(countEl){
     countEl.innerHTML=nbSel
@@ -7076,11 +7122,17 @@ function setTransferSearch(val){
   transferManualSearch=val;
   _renderTransferWineList();
 }
+function setTransferMaturiteFilter(val){
+  transferManualMaturiteFilter=transferManualMaturiteFilter===val?null:val;
+  renderTransfer();
+}
 
 function selectAllFiltered(){
   const q=transferManualSearch.toLowerCase().trim();
   const srcWines=winesOfCave(transferManualSrcId||'');
-  const filtered=q?srcWines.filter(w=>[w.nom,w.millesime,w.region,w.appellation,w.producteur,w.cepage].filter(Boolean).join(' ').toLowerCase().includes(q)):srcWines;
+  const isRhumSrc=!!getCave(transferManualSrcId)?.isRhum;
+  const filteredByText=q?srcWines.filter(w=>[w.nom,w.millesime,w.region,w.appellation,w.producteur,w.cepage].filter(Boolean).join(' ').toLowerCase().includes(q)):srcWines;
+  const filtered=(!isRhumSrc&&transferManualMaturiteFilter)?filteredByText.filter(w=>maturiteStatus(w)===transferManualMaturiteFilter):filteredByText;
   const allSel=filtered.every(w=>transferManualWineIds.includes(w.id));
   if(allSel){
     // Tout désélectionner (parmi les filtrés)
@@ -7160,7 +7212,7 @@ function buildTransferManualHtml(){
   // ── Étape 1 : cave source ──
   h+=`<div style="margin-bottom:14px;">
     <div style="font-size:12px;font-weight:600;color:var(--ink3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;">1 · Cave source</div>
-    <select onchange="transferManualSrcId=this.value===''?null:+this.value;transferManualWineIds=[];transferManualDstId=null;transferManualSearch='';renderTransfer()" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--white);color:var(--ink);">
+    <select onchange="transferManualSrcId=this.value===''?null:+this.value;transferManualWineIds=[];transferManualDstId=null;transferManualSearch='';transferManualMaturiteFilter=null;renderTransfer()" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--white);color:var(--ink);">
       <option value="">— Choisir une cave —</option>
       ${allCaves.map(c=>`<option value="${c.id}" ${transferManualSrcId===c.id?'selected':''}>${c.name}${c.lieu?' ('+c.lieu+')':''}${c.type?' · '+c.type:''}</option>`).join('')}
     </select>
@@ -7173,13 +7225,30 @@ function buildTransferManualHtml(){
       h+=`<div style="background:var(--paper2);border-radius:12px;padding:14px;font-size:13px;color:var(--ink2);margin-bottom:14px;">Cave vide — aucun vin à transférer.</div>`;
     }else{
       const q=transferManualSearch.toLowerCase().trim();
-      const filtered=q?srcWines.filter(w=>[w.nom,w.millesime,w.region,w.appellation,w.producteur,w.cepage].filter(Boolean).join(' ').toLowerCase().includes(q)):srcWines;
+      const filteredByText=q?srcWines.filter(w=>[w.nom,w.millesime,w.region,w.appellation,w.producteur,w.cepage].filter(Boolean).join(' ').toLowerCase().includes(q)):srcWines;
+      const isRhumSrc=!!getCave(transferManualSrcId)?.isRhum;
+      const filtered=(!isRhumSrc&&transferManualMaturiteFilter)?filteredByText.filter(w=>maturiteStatus(w)===transferManualMaturiteFilter):filteredByText;
       const allFilteredSel=filtered.length>0&&filtered.every(w=>transferManualWineIds.includes(w.id));
+      // Compter les vins par statut de maturité (pour badges sur les boutons)
+      const matCounts={maturation:0,debut_apogee:0,apogee:0,declin:0,none:0};
+      if(!isRhumSrc){filteredByText.forEach(w=>{const s=maturiteStatus(w);if(s)matCounts[s]++;else matCounts.none++;});}
+      const _matBtn=(key,color,label)=>{
+        const active=transferManualMaturiteFilter===key;
+        const cnt=matCounts[key];
+        return cnt>0?`<button onclick="setTransferMaturiteFilter('${key}')" style="display:flex;align-items:center;gap:4px;padding:5px 10px;border-radius:20px;border:2px solid ${active?color:'var(--border)'};background:${active?color+'22':'var(--paper2)'};color:${active?color:'var(--ink3)'};font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;">
+          <span style="width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;"></span>${label} <span style="opacity:.7">${cnt}</span></button>`:''
+      };
       h+=`<div style="margin-bottom:14px;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
           <div style="font-size:12px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;flex:1;">2 · Vins à transférer</div>
           <span id="transfer-wine-count">${nbSel?`<span style="background:var(--rouge-m);color:#fff;border-radius:20px;padding:1px 8px;font-size:11px;font-weight:700;">${nbSel} sélectionné${nbSel>1?'s':''}</span>`:`<span style="font-size:11px;color:var(--ink3);">— touche pour sélectionner</span>`}</span>
         </div>
+        ${!isRhumSrc&&(matCounts.maturation+matCounts.debut_apogee+matCounts.apogee+matCounts.declin)>0?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;">
+          ${_matBtn('maturation','#4CAF50','Maturation')}
+          ${_matBtn('debut_apogee','#FDD835','Début apogée')}
+          ${_matBtn('apogee','#FF9800','Apogée')}
+          ${_matBtn('declin','#E53935','Déclin')}
+        </div>`:''}
         <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">
           <div style="flex:1;position:relative;">
             <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none;">🔍</span>
@@ -7238,8 +7307,11 @@ function buildTransferManualHtml(){
           <option value="">— Choisir une cave cible —</option>
           ${otherCaves.map(c=>{
             const n=winesOfCave(c.id).length;
-            const cap=c.clayettes.reduce((s,cl)=>s+cl.rows*cl.cols,0);
-            const dispo=cap-n;
+            if(c.vrac){
+              return`<option value="${c.id}" ${transferManualDstId===c.id?'selected':''}>${c.name}${c.lieu?' ('+c.lieu+')':''}${c.type?' · '+c.type:''} 📦 — illimité (${n} stockée${n!==1?'s':''})</option>`;
+            }
+            const cap=c.clayettes.reduce((s,cl)=>s+cl.rows*cl.cols*(cl.depth||1),0);
+            const dispo=Math.max(0,cap-n);
             return`<option value="${c.id}" ${transferManualDstId===c.id?'selected':''}>${c.name}${c.lieu?' ('+c.lieu+')':''}${c.type?' · '+c.type:''}${c.isRhum?' 🥃':''} — ${dispo} place${dispo>1?'s':''} libre${dispo>1?'s':''}</option>`;
           }).join('')}
         </select>
@@ -7265,7 +7337,22 @@ function buildTransferManualHtml(){
           algoPlanned.push({wineId:wine.id,pos:fpos,depth:fd!==undefined?+fd:0,wine,forced:true,forcedKey});
         } else {
           const extra=virtMap[dstCave.id]||[];
-          const bp=bestPosition(dstCave,{couleur:wine.couleur,region:wine.region,millesime:wine.millesime,caveId:dstCave.id},extra);
+          let bp;
+          if(dstCave.vrac){
+            // Pour vrac : placement séquentiel en tenant compte des positions virtuelles déjà planifiées
+            const extraPosSet=new Set(extra.map(e=>e.position));
+            const usedVrac=new Set(winesOfCave(dstCave.id).map(w=>w.position));
+            const vcl=dstCave.clayettes[0];
+            bp=null;
+            outerVrac: for(let vr=vcl.rows-1;vr>=0;vr--){
+              for(let vc=0;vc<VRAC_COLS;vc++){
+                const vp=mkPos(0,vr,vc);
+                if(!usedVrac.has(vp)&&!extraPosSet.has(vp)){bp={pos:vp,ci:0,r:vr,c:vc,depth:0};break outerVrac;}
+              }
+            }
+          } else {
+            bp=bestPosition(dstCave,{couleur:wine.couleur,region:wine.region,millesime:wine.millesime,caveId:dstCave.id},extra);
+          }
           if(bp){
             if(!virtMap[dstCave.id])virtMap[dstCave.id]=[];
             virtMap[dstCave.id].push({position:bp.pos,depth:bp.depth||0,couleur:wine.couleur,caveId:dstCave.id,id:-(wine.id)});
