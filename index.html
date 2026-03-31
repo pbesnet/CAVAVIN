@@ -6786,7 +6786,7 @@ function renderSupercave(){
     // Déclin imminent : aujourd'hui >= 1er juillet de l'année apogeeFin
     // (= 6 mois avant le 1er janvier de apogeeFin+1, premier jour du déclin)
     const today=new Date();
-    const urgents=wines.filter(w=>maturiteStatus(w)==='apogee'&&w.apogeeFin&&today>=new Date(w.apogeeFin,6,1))
+    const urgents=wines.filter(w=>maturiteStatus(w)==='apogee'&&w.apogeeFin&&today>=new Date(w.apogeeFin,3,1))
       .sort((a,b)=>(a.apogeeFin||9999)-(b.apogeeFin||9999))
       .slice(0,10);
     if(!urgents.length)return'';
