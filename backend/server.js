@@ -274,6 +274,7 @@ app.post('/api/ai', requireAuth, async (req, res) => {
     const body = {
       model: 'claude-opus-4-5',
       max_tokens: maxTokens,
+      temperature: 0,   // déterministe — évite les variations entre deux appels identiques
       messages,
       ...(system ? { system } : {}),
     };
