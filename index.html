@@ -5981,59 +5981,64 @@ function renderSupercave(){
     const reco=db.recoWE||{};
     const isLoading=!!reco.loading;
     const hasReco=!isLoading&&!reco.error&&reco.vins&&reco.vins.length>0;
-    const isEmpty=!isLoading&&!reco.error&&!hasReco;
-    return`<div style="background:linear-gradient(135deg,#1B1B3A 0%,#2C1654 55%,#1a2744 100%);border-radius:16px;padding:15px 15px 13px;box-shadow:0 4px 22px rgba(0,0,0,.28);margin-bottom:16px;position:relative;overflow:hidden;">
-      <div style="position:absolute;inset:0;pointer-events:none;opacity:.1;background:radial-gradient(#fff 1px,transparent 1px) 0 0/32px 32px,radial-gradient(#fff 1px,transparent 1px) 16px 16px/44px 44px;"></div>
-      <div style="position:relative;">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
-          <div>
-            <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:700;color:#fff;line-height:1.1;">✨ Reco du weekend</div>
-            <div style="font-size:10px;color:rgba(255,255,255,.45);margin-top:2px;">${hasReco?`${reco.location} · ${reco.weekend}`:isLoading?'Analyse en cours…':'Reco IA personnalisée selon météo + cave'}</div>
-          </div>
-          <button onclick="refreshRecoWE()" ${isLoading?'disabled':''} style="background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.22);border-radius:20px;padding:5px 12px;color:#fff;font-size:11px;font-weight:600;cursor:${isLoading?'default':'pointer'};white-space:nowrap;opacity:${isLoading?.6:1};">${isLoading?'⏳':'🔄'}</button>
+    return`<div style="background:var(--white);border-radius:14px;box-shadow:var(--shadow-s);margin-bottom:12px;overflow:hidden;">
+      <!-- Bandeau titre -->
+      <div style="background:linear-gradient(to right,var(--rouge-l),var(--champ-l));padding:11px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);">
+        <div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;color:var(--ink);line-height:1.1;">✨ Reco du weekend</div>
+          <div style="font-size:10px;color:var(--ink3);margin-top:2px;">${hasReco?`${reco.location} · ${reco.weekend}`:isLoading?'Analyse météo + cave en cours…':'Recommandation IA selon météo &amp; maturité'}</div>
         </div>
+        <button onclick="refreshRecoWE()" ${isLoading?'disabled':''} style="background:var(--white);border:1px solid var(--border);border-radius:20px;padding:5px 11px;color:var(--ink2);font-size:11px;font-weight:600;cursor:${isLoading?'default':'pointer'};white-space:nowrap;opacity:${isLoading?.5:1};font-family:var(--font);">${isLoading?'⏳':'🔄'}</button>
+      </div>
+      <!-- Corps -->
+      <div style="padding:12px 14px 13px;">
         ${isLoading?`
-          <div style="display:flex;gap:6px;margin-bottom:10px;">${['Ven','Sam','Dim'].map(d=>`<div style="flex:1;background:rgba(255,255,255,.07);border-radius:8px;height:62px;display:flex;align-items:center;justify-content:center;font-size:9px;color:rgba(255,255,255,.25);">${d}</div>`).join('')}</div>
-          <div style="height:14px;background:rgba(255,255,255,.07);border-radius:6px;margin-bottom:8px;width:70%;"></div>
-          <div style="height:52px;background:rgba(255,255,255,.07);border-radius:10px;margin-bottom:6px;"></div>
-          <div style="height:52px;background:rgba(255,255,255,.07);border-radius:10px;margin-bottom:6px;"></div>
-          <div style="height:52px;background:rgba(160,88,10,.2);border-radius:10px;"></div>
+          <div style="display:flex;gap:6px;margin-bottom:10px;">${['Ven','Sam','Dim'].map(d=>`<div style="flex:1;background:var(--paper3);border-radius:9px;height:64px;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--ink4);">${d}</div>`).join('')}</div>
+          <div style="height:12px;background:var(--paper3);border-radius:6px;margin-bottom:10px;width:65%;"></div>
+          <div style="height:48px;background:var(--paper2);border-radius:9px;margin-bottom:6px;"></div>
+          <div style="height:48px;background:var(--paper2);border-radius:9px;margin-bottom:6px;"></div>
+          <div style="height:48px;background:var(--champ-l);border-radius:9px;"></div>
         `:reco.error?`
-          <div style="background:rgba(220,38,38,.2);border:1px solid rgba(220,38,38,.3);border-radius:10px;padding:10px 12px;font-size:12px;color:#fca5a5;line-height:1.4;">⚠️ ${reco.error}</div>
+          <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:9px;padding:10px 12px;font-size:12px;color:#991b1b;line-height:1.4;">⚠️ ${reco.error}</div>
         `:hasReco?`
+          <!-- Météo strip -->
           <div style="display:flex;gap:5px;margin-bottom:11px;">
-            ${(reco.weather||[]).map(d=>`<div style="flex:1;background:rgba(255,255,255,.09);border-radius:9px;padding:7px 4px;text-align:center;">
+            ${(reco.weather||[]).map(d=>`<div style="flex:1;background:var(--paper2);border-radius:9px;padding:7px 4px;text-align:center;">
               <div style="font-size:20px;line-height:1;">${d.icon}</div>
-              <div style="font-size:9px;color:rgba(255,255,255,.55);margin-top:2px;">${d.label}</div>
-              <div style="font-size:12px;font-weight:700;color:#fff;margin-top:1px;">${d.max}°</div>
-              <div style="font-size:9px;color:rgba(255,255,255,.35);">${d.precip}%💧</div>
+              <div style="font-size:9px;color:var(--ink3);margin-top:2px;">${d.label}</div>
+              <div style="font-size:12px;font-weight:700;color:var(--ink);margin-top:1px;">${d.max}°</div>
+              <div style="font-size:9px;color:var(--ink4);">${d.precip}%💧</div>
             </div>`).join('')}
           </div>
-          <div style="font-family:'Cormorant Garamond',serif;font-size:13px;font-style:italic;color:rgba(255,255,255,.7);margin-bottom:11px;line-height:1.45;text-align:center;">"${reco.conseil}"</div>
+          <!-- Conseil -->
+          <div style="font-family:'Cormorant Garamond',serif;font-size:14px;font-style:italic;color:var(--ink2);margin-bottom:11px;line-height:1.45;text-align:center;">"${reco.conseil}"</div>
+          <!-- Vins -->
           ${(reco.vins||[]).map(v=>`
-          <div onclick="showDetail(${v.id})" style="display:flex;align-items:center;gap:9px;background:rgba(255,255,255,.09);border-radius:10px;padding:9px 11px;margin-bottom:6px;cursor:pointer;border:1px solid rgba(255,255,255,.07);" onmouseover="this.style.background='rgba(255,255,255,.16)'" onmouseout="this.style.background='rgba(255,255,255,.09)'">
+          <div onclick="showDetail(${v.id})" style="display:flex;align-items:center;gap:9px;background:var(--paper2);border-radius:9px;padding:9px 11px;margin-bottom:6px;cursor:pointer;border-left:3px solid var(--rouge);" onmouseover="this.style.background='var(--paper3)'" onmouseout="this.style.background='var(--paper2)'">
             ${couleurPastille(v.couleur)}
             <div style="flex:1;min-width:0;">
-              <div style="font-size:12px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${v.nom}${v.millesime?' '+v.millesime:''}</div>
-              <div style="font-size:10px;color:rgba(255,255,255,.55);margin-top:1px;">${v.raison}</div>
-              ${v.accord?`<div style="font-size:9px;color:rgba(255,255,255,.32);margin-top:1px;">🍽️ ${v.accord}${v.temp_service?' · '+v.temp_service:''}</div>`:''}
+              <div style="font-size:12px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${v.nom}${v.millesime?' '+v.millesime:''}</div>
+              <div style="font-size:10px;color:var(--ink2);margin-top:1px;">${v.raison}</div>
+              ${v.accord?`<div style="font-size:9px;color:var(--ink3);margin-top:1px;">🍽️ ${v.accord}${v.temp_service?' · '+v.temp_service:''}</div>`:''}
             </div>
           </div>`).join('')}
+          <!-- Rhum -->
           ${reco.rhum?`
-          <div onclick="showDetail(${reco.rhum.id})" style="display:flex;align-items:center;gap:9px;background:rgba(140,76,0,.3);border-radius:10px;padding:9px 11px;cursor:pointer;border:1px solid rgba(180,110,0,.3);" onmouseover="this.style.background='rgba(140,76,0,.45)'" onmouseout="this.style.background='rgba(140,76,0,.3)'">
+          <div onclick="showDetail(${reco.rhum.id})" style="display:flex;align-items:center;gap:9px;background:var(--champ-l);border-radius:9px;padding:9px 11px;cursor:pointer;border-left:3px solid var(--champ-m);" onmouseover="this.style.filter='brightness(.96)'" onmouseout="this.style.filter='none'">
             <span style="font-size:20px;flex-shrink:0;">🥃</span>
             <div style="flex:1;min-width:0;">
-              <div style="font-size:12px;font-weight:700;color:#FFCC80;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${reco.rhum.cocktail} · ${reco.rhum.nom}${reco.rhum.millesime?' '+reco.rhum.millesime:''}</div>
-              <div style="font-size:10px;color:rgba(255,200,100,.6);margin-top:1px;">${reco.rhum.recette}</div>
-              <div style="font-size:9px;color:rgba(255,200,100,.38);margin-top:1px;">${reco.rhum.raison}</div>
+              <div style="font-size:12px;font-weight:700;color:var(--champ);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${reco.rhum.cocktail} · ${reco.rhum.nom}${reco.rhum.millesime?' '+reco.rhum.millesime:''}</div>
+              <div style="font-size:10px;color:var(--ink2);margin-top:1px;">${reco.rhum.recette}</div>
+              <div style="font-size:9px;color:var(--ink3);margin-top:1px;">${reco.rhum.raison}</div>
             </div>
           </div>`:''}
-          <div style="text-align:right;margin-top:8px;font-size:9px;color:rgba(255,255,255,.22);">${reco.auto?'🤖 auto':'✋ manuel'} · ${new Date(reco.updatedAt).toLocaleDateString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>
+          <!-- Horodatage -->
+          <div style="text-align:right;margin-top:8px;font-size:9px;color:var(--ink4);">${reco.auto?'🤖 auto':'✋ manuel'} · ${new Date(reco.updatedAt).toLocaleDateString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>
         `:`
-          <div style="text-align:center;padding:14px 0 6px;">
-            <div style="font-size:36px;margin-bottom:8px;">🍷🤖</div>
-            <div style="font-size:12px;color:rgba(255,255,255,.55);margin-bottom:14px;line-height:1.5;">L'IA analyse ta cave + la météo du WE<br>pour te recommander les bouteilles parfaites</div>
-            <button onclick="refreshRecoWE()" style="background:linear-gradient(135deg,#C23052,#8B1A2E);border:none;border-radius:12px;padding:10px 24px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);box-shadow:0 3px 12px rgba(194,48,82,.4);">✨ Générer ma reco</button>
+          <div style="text-align:center;padding:16px 0 8px;">
+            <div style="font-size:34px;margin-bottom:8px;">🍷🤖</div>
+            <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5;">L'IA analyse ta cave et la météo du WE<br>pour recommander les bouteilles parfaites</div>
+            <button onclick="refreshRecoWE()" style="background:var(--rouge);border:none;border-radius:10px;padding:10px 22px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">✨ Générer ma reco</button>
           </div>
         `}
       </div>
