@@ -5775,6 +5775,8 @@ function renderSupercave(){
   }
   const total=wines.length;
   const year=new Date().getFullYear();
+  const winesVin=wines.filter(w=>w.couleur!=='rhum');
+  const winesRhum=wines.filter(w=>w.couleur==='rhum');
 
   // ── Helpers ──
   const pct=(n)=>total?Math.round(n/total*100):0;
@@ -5814,12 +5816,9 @@ function renderSupercave(){
   ];
   const maxCouleur=Math.max(...couleurs.map(c=>wines.filter(w=>w.couleur===c.key).length));
 
-  // ── 3. Par région / pays (vin + rhum) ──
+  // ── 3. Par région (vins uniquement, sans rhum) ──
   const regMap={};
-  wines.forEach(w=>{
-    const r=w.couleur==='rhum'?w.pays:w.region;
-    if(r)regMap[r]=(regMap[r]||0)+1;
-  });
+  winesVin.forEach(w=>{if(w.region)regMap[w.region]=(regMap[w.region]||0)+1;});
   const regions=Object.entries(regMap).sort((a,b)=>b[1]-a[1]);
   const maxReg=regions[0]?.[1]||1;
 
@@ -5832,17 +5831,24 @@ function renderSupercave(){
     {label:'+ de 10 ans',test:m=>m&&(now-m)>10,color:'#7B1FA2'},
     {label:'Millésime inconnu',test:m=>!m,color:'#9E9E9E'},
   ];
-  const winesVin=wines.filter(w=>w.couleur!=='rhum');
   const maxAge=Math.max(...groupes.map(g=>winesVin.filter(w=>g.test(w.millesime)).length));
 
-  // ── 5b. Top 15 producteurs (vin + distilleries rhum) ──
+  // ── 5b. Top 15 producteurs (vins uniquement) ──
   const prodMap={};
-  wines.forEach(w=>{
-    const p=w.couleur==='rhum'?w.distillerie:w.producteur;
-    if(p&&p.trim())prodMap[p.trim()]=(prodMap[p.trim()]||0)+1;
-  });
+  winesVin.forEach(w=>{if(w.producteur&&w.producteur.trim())prodMap[w.producteur.trim()]=(prodMap[w.producteur.trim()]||0)+1;});
   const topProd=Object.entries(prodMap).sort((a,b)=>b[1]-a[1]).slice(0,15);
   const maxProd=topProd[0]?.[1]||1;
+  // ── Top distilleries + top pays rhum ──
+  const distilMap={};
+  const paysRhumMap={};
+  winesRhum.forEach(w=>{
+    if(w.distillerie&&w.distillerie.trim())distilMap[w.distillerie.trim()]=(distilMap[w.distillerie.trim()]||0)+1;
+    if(w.pays&&w.pays.trim())paysRhumMap[w.pays.trim()]=(paysRhumMap[w.pays.trim()]||0)+1;
+  });
+  const topDistil=Object.entries(distilMap).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const topPaysRhum=Object.entries(paysRhumMap).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const maxDistil=topDistil[0]?.[1]||1;
+  const maxPaysRhum=topPaysRhum[0]?.[1]||1;
 
   // ── 5. Détail par cave ──
   const caveRows=db.caves.map(c=>{
@@ -5930,10 +5936,6 @@ function renderSupercave(){
           <div style="font-size:7px;color:var(--ink3);margin-top:3px;text-align:center;">${monthLabels[i]}</div>
         </div>`;}).join('')}
     </div>`:`<div style="text-align:center;padding:12px 0 8px;font-size:12px;color:var(--ink3);">Aucune donnée pour ${year}.</div>`}
-  ${wines.length?`<div style="display:flex;gap:7px;margin-top:8px;">
-    <button onclick="recalcStatsFromWines()" style="flex:1;padding:8px 6px;border-radius:9px;border:1px solid var(--border);background:#E8F5E9;font-size:11px;font-weight:600;color:#2E7D32;cursor:pointer;">🔄 Reconstruire entrées</button>
-    <button onclick="recalcSortiesFromJournal()" style="flex:1;padding:8px 6px;border-radius:9px;border:1px solid var(--border);background:#FFEBEE;font-size:11px;font-weight:600;color:#C62828;cursor:pointer;">🔄 Reconstruire sorties</button>
-  </div>`:''}
   </div>
 
   <!-- MATURITÉ -->
@@ -6201,7 +6203,7 @@ function renderSupercave(){
               </div>
             </div>
           </div>
-          ${typesPresents.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;">
+          ${typesPresents.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:${topDistil.length||topPaysRhum.length?'10':'0'}px;">
             ${typesPresents.map(t=>`<div onclick="event.stopPropagation();invCaveFilter=${c.id};setInvFilter('rhum');setInvRhumType('${t}');_invNavFilters=true;nav('inv')" style="padding:4px 8px;border-radius:7px;background:${_RHUM_TYPE_GRAD[t]||'linear-gradient(135deg,#7A4010,#D08030)'};display:flex;align-items:center;gap:5px;cursor:pointer;">
               <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:700;color:#fff;line-height:1;">${typeMap[t]}</div>
               <div style="font-size:9px;font-weight:700;color:rgba(255,255,255,.85);text-transform:uppercase;letter-spacing:.5px;">${t}</div>
@@ -6209,6 +6211,29 @@ function renderSupercave(){
           </div>`:''}
         </div>`;
       }).join('')}
+      ${topPaysRhum.length?`
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+        <div style="font-size:10px;font-weight:700;color:#7B3010;text-transform:uppercase;letter-spacing:.7px;margin-bottom:7px;">🌍 Par pays</div>
+        ${topPaysRhum.map(([p,n])=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <div style="font-size:11px;color:var(--ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p}</div>
+          <div style="height:5px;background:var(--paper3);border-radius:99px;overflow:hidden;width:70px;flex-shrink:0;">
+            <div style="height:100%;width:${Math.round(n/maxPaysRhum*100)}%;background:#A0522D;border-radius:99px;"></div>
+          </div>
+          <div style="width:20px;text-align:right;font-size:11px;font-weight:700;color:#7B3010;flex-shrink:0;">${n}</div>
+        </div>`).join('')}
+      </div>`:''}
+      ${topDistil.length?`
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+        <div style="font-size:10px;font-weight:700;color:#7B3010;text-transform:uppercase;letter-spacing:.7px;margin-bottom:7px;">🏭 Top distilleries</div>
+        ${topDistil.map(([d,n],i)=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <div style="width:16px;font-size:10px;font-weight:700;color:${i<3?'#A0522D':'var(--ink3)'};text-align:right;flex-shrink:0;">${i+1}</div>
+          <div style="font-size:11px;color:var(--ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${d}</div>
+          <div style="height:5px;background:var(--paper3);border-radius:99px;overflow:hidden;width:70px;flex-shrink:0;">
+            <div style="height:100%;width:${Math.round(n/maxDistil*100)}%;background:${i===0?'#7B3010':i===1?'#A0522D':'#C8854488'};border-radius:99px;"></div>
+          </div>
+          <div style="width:20px;text-align:right;font-size:11px;font-weight:700;color:#7B3010;flex-shrink:0;">${n}</div>
+        </div>`).join('')}
+      </div>`:''}
     </div>`;
   })()}
 
