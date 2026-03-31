@@ -3242,7 +3242,12 @@ function saveWine(){
   if(firstNewWine&&!firstNewWine.scorePresse&&apiKey){
     (async()=>{
       try{
-        const ctx=`Tu es un critique de vin expert. Pour ce vin : "${firstNewWine.nom||''}"${firstNewWine.millesime?' '+firstNewWine.millesime:''}${firstNewWine.producteur?', domaine '+firstNewWine.producteur:''}${firstNewWine.appellation?', '+firstNewWine.appellation:''}${firstNewWine.region?', '+firstNewWine.region:''}. Donne le score moyen sur 100 selon les grandes critiques (Parker, Wine Spectator, Decanter, RVF...). Réponds UNIQUEMENT avec un entier entre 80 et 100. Si tu n'as pas d'info fiable sur ce vin précis, réponds 80.`;
+        let ctx;
+        if(firstNewWine.couleur==='rhum'){
+          ctx=`Tu es un expert en rhums et spiritueux. Pour ce rhum : "${firstNewWine.nom||''}"${firstNewWine.distillerie?', distillerie '+firstNewWine.distillerie:''}${firstNewWine.pays?', '+firstNewWine.pays:''}${firstNewWine.rhumType?', '+firstNewWine.rhumType:''}. Donne le score moyen sur 100 selon les grandes critiques (Rum XP, BTI, Spirits Business, The Rum Judge…). Réponds UNIQUEMENT avec un entier entre 80 et 100. Si tu n'as pas d'info fiable sur ce rhum précis, réponds 80.`;
+        } else {
+          ctx=`Tu es un critique de vin expert. Pour ce vin : "${firstNewWine.nom||''}"${firstNewWine.millesime?' '+firstNewWine.millesime:''}${firstNewWine.producteur?', domaine '+firstNewWine.producteur:''}${firstNewWine.appellation?', '+firstNewWine.appellation:''}${firstNewWine.region?', '+firstNewWine.region:''}. Donne le score moyen sur 100 selon les grandes critiques (Parker, Wine Spectator, Decanter, RVF...). Réponds UNIQUEMENT avec un entier entre 80 et 100. Si tu n'as pas d'info fiable sur ce vin précis, réponds 80.`;
+        }
         const r=await apiCall([{role:'user',content:ctx}],10);
         const score=parseInt(r.trim());
         if(score>=80&&score<=100){
@@ -3372,18 +3377,20 @@ function buildMiniCaveSchema(wine,sz=0){
   // Taille auto : occupe toute la largeur de la modale (padding 16px × 2)
   // Label clayette : 14px + gap 6px = 20px à soustraire
   const maxCols=cave.clayettes.reduce((m,cl)=>Math.max(m,cl.cols),1);
-  const availW=Math.min(window.innerWidth,520)-32-20; // modale padding + label
+  const availW=Math.min(window.innerWidth,520)-32; // modale padding seulement (label au-dessus)
   const autoSz=Math.floor((availW-(maxCols-1)*3)/maxCols);
   sz=Math.max(9,Math.min(22,autoSz));
   const gap=Math.max(2,Math.round(sz*.18));
 
   let html=`<div style="margin-bottom:12px;">`;
   html+=`<div style="font-size:10px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:4px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--rouge-m);display:inline-block;"></span>Position dans la cave</div>`;
-  html+=`<div style="display:flex;flex-direction:column;gap:2px;">`;
+  html+=`<div style="display:flex;flex-direction:column;gap:6px;">`;
   cave.clayettes.forEach((cl,ci)=>{
     const clDepthS=cl.depth||1;
-    html+=`<div style="display:flex;align-items:center;gap:6px;">`;
-    html+=`<div style="font-size:8px;font-weight:600;color:var(--ink4);width:14px;text-align:right;flex-shrink:0;">${ci+1}</div>`;
+    const clLabelS=cl.label||('Clayette '+(ci+1));
+    // Label au-dessus de la grille
+    html+=`<div style="display:flex;flex-direction:column;gap:2px;">`;
+    html+=`<div style="font-size:8px;font-weight:700;color:var(--ink3);letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${clLabelS}">${clLabelS}</div>`;
     html+=`<div style="display:flex;flex-direction:column;gap:${gap}px;">`;
     for(let r=0;r<cl.rows;r++){
       const depthLevelsS=clDepthS===2?[[1,true,'AR'],[0,false,'AV']]:[[0,false,null]];
@@ -3402,9 +3409,9 @@ function buildMiniCaveSchema(wine,sz=0){
         html+='</div>';
       }
     }
-    html+='</div></div>';
+    html+='</div></div>'; // ferme grille + bloc clayette
     if(ci<cave.clayettes.length-1)
-      html+=`<div style="height:1px;background:var(--paper3);margin:1px 0 1px 20px;"></div>`;
+      html+=`<div style="height:1px;background:var(--paper3);margin:2px 0;"></div>`;
   });
   html+=`</div>`;
   // Légende compacte
@@ -3892,21 +3899,12 @@ function syncFormToBottleType(){
   const couleurEl=document.getElementById('add-couleur');
   const cave=getCave(activeCave);
   const isRhumCave=!!(cave?.isRhum);
-  // Forcer couleur rhum seulement si on vient directement d'une cave rhum (FAB ou slot)
-  // Depuis le nav "Ajouter", on laisse le choix libre (rouge par défaut)
-  if(isRhumCave&&_addFromCave){
-    if(couleurEl){couleurEl.value='rhum';couleurEl.disabled=true;}
-  } else if(!isRhumCave){
-    if(couleurEl){
-      couleurEl.disabled=false;
-      // Si la cave active n'est pas rhum, revenir à rouge si rhum était sélectionné
-      if(couleurEl.value==='rhum')couleurEl.value='rouge';
-    }
-  } else {
-    // Cave rhum mais navigation directe → laisser le select actif (l'utilisateur choisit)
-    if(couleurEl){couleurEl.disabled=false;}
+  // syncFormToBottleType ne verrouille JAMAIS le select (le verrouillage rhum
+  // est fait une seule fois dans nav('add') quand _addFromCave=true)
+  // Si la cave active n'est pas rhum et que rhum est sélectionné → reset rouge
+  if(couleurEl && !couleurEl.disabled){
+    if(!isRhumCave && couleurEl.value==='rhum') couleurEl.value='rouge';
   }
-  _addFromCave=false; // consommer le flag
   const isRhum=couleurEl?.value==='rhum';
   const WINE_IDS=['wf-millesime','wf-region','wf-appellation','wf-cepage','wf-producteur','wf-format','wf-dateachat','wf-lieuachat','wf-carafage','wf-bio'];
   WINE_IDS.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=isRhum?'none':'';});
@@ -4128,18 +4126,13 @@ function toggleSidebar(){
 
 function updateTopbarSel(){
   const sel=document.getElementById('topbar-cave-sel');
-  // En mode add, filtrer selon type rhum/vin en cours
-  const isAddPage=currentPage==='add';
-  const isRhumForm=isAddPage&&(document.getElementById('add-couleur')?.value==='rhum');
-  const caves=isAddPage
-    ?sortedCaves().filter(c=>!c.vrac&&(isRhumForm?c.isRhum:!c.isRhum))
-    :sortedCaves();
-  sel.innerHTML=caves.map(c=>`<option value="${c.id}" ${c.id===activeCave?'selected':''}>${c.name}${c.isRhum?' 🥃':''}</option>`).join('');
+  // Toujours afficher TOUTES les caves dans la topbar
+  sel.innerHTML=sortedCaves().map(c=>`<option value="${c.id}" ${c.id===activeCave?'selected':''}>${c.name}${c.isRhum?' 🥃':''}</option>`).join('');
   sel.onchange=()=>{
     activeCave=parseInt(sel.value);
     updateSidebarCaves();
     if(currentPage==='add'){
-      // Rester sur le form, mettre à jour la preview
+      // Rester sur le form, mettre à jour la preview selon la nouvelle cave
       syncFormToBottleType();
       renderPlacementPreview();
     } else {
@@ -4874,48 +4867,77 @@ async function doAiFill(){
   document.getElementById('ai-fill-btn').style.display='none';
   const st=document.getElementById('ai-status');st.style.display='flex';
   document.getElementById('ai-status-txt').textContent='🔍 Identification en cours…';
+
+  const isRhumForm=document.getElementById('add-couleur')?.value==='rhum';
+
   try{
-    const r=await apiCall([{role:'user',content:[
-      {type:'image',source:{type:'base64',media_type:bottleB64.split(';')[0].split(':')[1],data:bottleB64.split(',')[1]}},
-      {type:'text',text:`Tu es expert en vins. Identifie ce vin depuis la photo d'étiquette et retourne UNIQUEMENT un JSON valide sans markdown :
+    if(isRhumForm){
+      // ── Prompt dédié RHUM ─────────────────────────────────────────────
+      const r=await apiCall([{role:'user',content:[
+        {type:'image',source:{type:'base64',media_type:bottleB64.split(';')[0].split(':')[1],data:bottleB64.split(',')[1]}},
+        {type:'text',text:`Tu es expert en spiritueux et rhums. Identifie ce rhum depuis la photo d'étiquette et retourne UNIQUEMENT un JSON valide sans markdown :
+{"nom":"","distillerie":"","pays":"","rhumType":"Punch|Liqueur|Blanc|Paille|VO|VSOP|XO|Réserve","prix":0,"scorePresse":null}
+RÈGLES :
+- nom : nom complet du rhum tel qu'il apparaît sur l'étiquette.
+- distillerie : nom exact de la distillerie ou maison. Ex: "Clément", "Barbancourt", "Diplomatico", "Appleton Estate", "Zacapa".
+- pays : pays de production. Ex: "Martinique", "Haïti", "Venezuela", "Jamaïque", "Cuba", "Barbade", "Guyana", "Panama", "Nicaragua".
+- rhumType : type le plus approprié parmi Punch/Liqueur/Blanc/Paille/VO/VSOP/XO/Réserve selon l'étiquette et le style.
+- prix : prix moyen bouteille en euros (jamais null, jamais 0). Estime selon la marque et le type.
+- scorePresse : note critique /100 si connue (ex: Rum XP, BTI, Spirits Business…). null si inconnue.
+JSON strict, aucun autre texte.`}
+      ]}],800);
+      const info=JSON.parse(r.replace(/```json|```/g,'').trim());
+      const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null)el.value=v;};
+      _aiFilledPrix=info.prix||null;
+      // Ne jamais changer la couleur — reste 'rhum'
+      set('add-nom',info.nom);
+      set('add-prix',info.prix);
+      const scoreEl=document.getElementById('add-score');
+      if(scoreEl)scoreEl.value=info.scorePresse||80; // défaut 80 si non trouvé
+      const distEl=document.getElementById('add-distillerie');if(distEl&&info.distillerie)distEl.value=info.distillerie;
+      const paysEl=document.getElementById('add-pays');if(paysEl&&info.pays)paysEl.value=info.pays;
+      const typeEl=document.getElementById('add-rhum-type');if(typeEl&&info.rhumType)typeEl.value=info.rhumType;
+      renderPlacementPreview();
+      document.getElementById('ai-status-txt').innerHTML=`✅ Rhum identifié !&nbsp;&nbsp;<span style="font-size:11px;color:var(--ink2);">${[info.distillerie,info.pays,info.rhumType].filter(Boolean).join(' · ')}</span>`;
+      showToast('✅ Rhum identifié par l\'IA');
+    } else {
+      // ── Prompt VIN (inchangé) ────────────────────────────────────────
+      const r=await apiCall([{role:'user',content:[
+        {type:'image',source:{type:'base64',media_type:bottleB64.split(';')[0].split(':')[1],data:bottleB64.split(',')[1]}},
+        {type:'text',text:`Tu es expert en vins. Identifie ce vin depuis la photo d'étiquette et retourne UNIQUEMENT un JSON valide sans markdown :
 {"nom":"","producteur":"","couleur":"rouge|blanc|rose|champagne","millesime":null,"appellation":"","region":"Bordeaux|Bourgogne|Rhône|Loire|Alsace|Champagne|Provence|Languedoc|Corse|Autre","cepage":"","apogeeDebut":null,"apogeeFin":null,"prix":0,"scorePresse":null,"carafage":"non|30min|1h|2h+|null","biologique":false,"format":"75cl|37.5cl|magnum|double-magnum|jeroboam"}
 RÈGLES :
 - producteur : nom exact du château, domaine, maison ou coopérative tel qu'il apparaît sur l'étiquette — OBLIGATOIRE, jamais null ni vide. Si le nom n'est pas distinct du nom du vin, reprends le nom du vin. Ex: "Château Margaux", "Domaine Leroy", "Louis Roederer", "Maison Jadot".
 - prix : prix moyen bouteille en euros OBLIGATOIRE (jamais null, jamais 0). Estime au plus juste selon appellation, millésime, notoriété du producteur. Ex : Bourgogne village 2019 → ~22, Pomerol 2016 → ~55, Pétrus → ~3500.
 - apogeeDebut/apogeeFin : fenêtre de dégustation optimale selon appellation+millésime (ex rouge Bordeaux 2018 → 2024-2038).
 - null pour les autres champs optionnels si vraiment inconnu. JSON strict, aucun autre texte.`}
-    ]}],800);
-    const info=JSON.parse(r.replace(/```json|```/g,'').trim());
-    const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null)el.value=v;};
-    _aiFilledPrix=info.prix||null;
-    // ── Stocker l'apogée pour que saveWine() l'enregistre directement ──
-    _aiApogeeDebut=info.apogeeDebut||null;
-    _aiApogeeFin=info.apogeeFin||null;
-    // Si l'IA ne donne pas l'apogée, on la calcule par heuristique
-    if(!_aiApogeeDebut||!_aiApogeeFin){
-      const est=computeApogeeHeuristic(info.couleur||'rouge',info.region||'',info.millesime);
-      if(est.apogeeDebut&&est.apogeeFin){_aiApogeeDebut=est.apogeeDebut;_aiApogeeFin=est.apogeeFin;}
+      ]}],800);
+      const info=JSON.parse(r.replace(/```json|```/g,'').trim());
+      const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null)el.value=v;};
+      _aiFilledPrix=info.prix||null;
+      _aiApogeeDebut=info.apogeeDebut||null;
+      _aiApogeeFin=info.apogeeFin||null;
+      if(!_aiApogeeDebut||!_aiApogeeFin){
+        const est=computeApogeeHeuristic(info.couleur||'rouge',info.region||'',info.millesime);
+        if(est.apogeeDebut&&est.apogeeFin){_aiApogeeDebut=est.apogeeDebut;_aiApogeeFin=est.apogeeFin;}
+      }
+      set('add-nom',info.nom);set('add-millesime',info.millesime);set('add-appellation',info.appellation);
+      set('add-region',info.region);set('add-cepage',info.cepage);set('add-prix',info.prix);
+      set('add-producteur',info.producteur);set('add-score',info.scorePresse);
+      if(info.couleur){const el=document.getElementById('add-couleur');if(el&&!el.disabled)el.value=info.couleur;}
+      if(info.format){const el=document.getElementById('add-format');if(el)el.value=info.format;}
+      if(info.carafage){const el=document.getElementById('add-carafage');if(el)el.value=info.carafage;}
+      if(info.biologique){const el=document.getElementById('add-bio');if(el){el.checked=true;const t=document.getElementById('add-bio-track');const th=document.getElementById('add-bio-thumb');if(t)t.style.background='var(--rouge)';if(th)th.style.transform='translateX(18px)';}}
+      const mSt=maturiteStatus({apogeeDebut:_aiApogeeDebut,apogeeFin:_aiApogeeFin});
+      const mLabel={maturation:'🟢 En maturation — attendre',debut_apogee:'🟡 Début d\'apogée — s\'ouvre',apogee:'🟠 Apogée parfaite — à boire',declin:'🔴 Déclin — à boire vite'};
+      const apogeeInfo=_aiApogeeDebut&&_aiApogeeFin?` · Apogée ${_aiApogeeDebut}–${_aiApogeeFin}`:'';
+      const maturiteChip=mSt
+        ?`<span style="font-size:11px;font-weight:700;">${mLabel[mSt]}${apogeeInfo}</span>`
+        :(apogeeInfo?`<span style="font-size:11px;color:var(--ink2);">📅 Apogée${apogeeInfo}</span>`:'');
+      renderPlacementPreview();
+      document.getElementById('ai-status-txt').innerHTML=`✅ Vin identifié !&nbsp;&nbsp;${maturiteChip}`;
+      showToast('✅ Vin identifié par l\'IA');
     }
-
-    set('add-nom',info.nom);set('add-millesime',info.millesime);set('add-appellation',info.appellation);
-    set('add-region',info.region);set('add-cepage',info.cepage);set('add-prix',info.prix);
-    set('add-producteur',info.producteur);set('add-score',info.scorePresse);
-    if(info.couleur){const el=document.getElementById('add-couleur');if(el)el.value=info.couleur;}
-    if(info.format){const el=document.getElementById('add-format');if(el)el.value=info.format;}
-    if(info.carafage){const el=document.getElementById('add-carafage');if(el)el.value=info.carafage;}
-    if(info.biologique){const el=document.getElementById('add-bio');if(el){el.checked=true;const t=document.getElementById('add-bio-track');const th=document.getElementById('add-bio-thumb');if(t)t.style.background='var(--rouge)';if(th)th.style.transform='translateX(18px)';}}
-
-    // ── Afficher l'indicateur de maturité dans le formulaire ──
-    const mSt=maturiteStatus({apogeeDebut:_aiApogeeDebut,apogeeFin:_aiApogeeFin});
-    const mLabel={maturation:'🟢 En maturation — attendre',debut_apogee:'🟡 Début d\'apogée — s\'ouvre',apogee:'🟠 Apogée parfaite — à boire',declin:'🔴 Déclin — à boire vite'};
-    const apogeeInfo=_aiApogeeDebut&&_aiApogeeFin?` · Apogée ${_aiApogeeDebut}–${_aiApogeeFin}`:'';
-    const maturiteChip=mSt
-      ?`<span style="font-size:11px;font-weight:700;">${mLabel[mSt]}${apogeeInfo}</span>`
-      :(apogeeInfo?`<span style="font-size:11px;color:var(--ink2);">📅 Apogée${apogeeInfo}</span>`:'');
-
-    renderPlacementPreview();
-    document.getElementById('ai-status-txt').innerHTML=`✅ Vin identifié !&nbsp;&nbsp;${maturiteChip}`;
-    showToast('✅ Vin identifié par l\'IA');
   }catch(e){
     const msg=e.message||'Erreur inconnue';
     document.getElementById('ai-status-txt').textContent='❌ '+msg;
@@ -5579,6 +5601,13 @@ function nav(page){
     if(editingWineId===null) resetAddForm();
     // Position forcée depuis un clic sur emplacement vide (navAddFromSlot)
     if(_pendingForcedPosition){_forcedPosition=_pendingForcedPosition;_pendingForcedPosition=null;}
+    // Verrouiller sur rhum UNIQUEMENT si on vient d'une cave rhum via FAB ou slot
+    // (flag consommé ici, syncFormToBottleType ne désactive jamais le select)
+    if(_addFromCave && getCave(activeCave)?.isRhum){
+      const _cel=document.getElementById('add-couleur');
+      if(_cel){_cel.value='rhum';_cel.disabled=true;}
+    }
+    _addFromCave=false;
     syncFormToBottleType();
     renderPlacementPreview();
   }
