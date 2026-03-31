@@ -1979,9 +1979,57 @@ async function recalcStatsFromWines(){
       await fetch(`${API_URL}/api/data`,{method:'PATCH',headers:authHeaders(),body:JSON.stringify(payload)});
     }catch(_){}
   }
-  if(currentPage==='supercave'){nav('supercave');renderSupercave();}
+  if(currentPage==='supercave'){renderSupercave();showToast(`✅ ${counted} entrées reconstruites`);}
   else{showToast(`✅ ${counted} entrées recalculées et sauvegardées en base`);}
-  showToast(`✅ ${counted} entrées recalculées — sauvegardé en base`);
+}
+
+// Reconstruit les SORTIES depuis le journal : vins dans le journal mais plus dans la cave
+async function recalcSortiesFromJournal(){
+  if(!confirm('Reconstruire les sorties depuis le journal de dégustation ?\nChaque vin présent dans le journal mais retiré de la cave compte comme 1 sortie, à la date de sa dernière entrée de journal.'))return;
+  const wineIds=new Set(db.wines.map(w=>String(w.id)));
+  // Trouver par wineId la date la plus récente dans le journal → si le vin est absent de la cave = sorti
+  const lastJournalByWine={};
+  (db.journal||[]).forEach(j=>{
+    if(!j.wineId)return;
+    const key=String(j.wineId);
+    if(!lastJournalByWine[key]||j.date>lastJournalByWine[key])lastJournalByWine[key]=j.date;
+  });
+  const MIN_TS=new Date('2015-01-01').getTime();
+  const MAX_TS=Date.now()+86400000;
+  let counted=0;
+  // Conserver les entrées existantes, réinitialiser uniquement les sorties
+  if(!db.statsAnnuelles)db.statsAnnuelles={};
+  // Reset toutes les sorties
+  for(const yr of Object.keys(db.statsAnnuelles)){
+    for(const mo of Object.keys(db.statsAnnuelles[yr])){
+      db.statsAnnuelles[yr][mo].s=0;
+    }
+  }
+  for(const [wid,dateStr] of Object.entries(lastJournalByWine)){
+    if(wineIds.has(wid))continue; // encore dans la cave → pas une sortie
+    try{
+      const t=new Date(dateStr).getTime();
+      if(!t||t<MIN_TS||t>MAX_TS)continue;
+      const d=new Date(dateStr);
+      const yr=d.getFullYear().toString();
+      const mo=(d.getMonth()+1).toString().padStart(2,'0');
+      if(!db.statsAnnuelles[yr])db.statsAnnuelles[yr]={};
+      if(!db.statsAnnuelles[yr][mo])db.statsAnnuelles[yr][mo]={e:0,s:0};
+      db.statsAnnuelles[yr][mo].s=(db.statsAnnuelles[yr][mo].s||0)+1;
+      counted++;
+    }catch(_){}
+  }
+  try{localStorage.setItem('cavavin_stats_bak',JSON.stringify(db.statsAnnuelles));}catch(_){}
+  localStorage.setItem(lsKey(),JSON.stringify(db));
+  _syncSnapshotStats=JSON.stringify(db.statsAnnuelles);
+  if(_jwtToken&&currentUser&&!isDemo){
+    try{
+      const payload={meta:{nCave:db.nCave,nWine:db.nWine,statsAnnuelles:db.statsAnnuelles}};
+      await fetch(`${API_URL}/api/data`,{method:'PATCH',headers:authHeaders(),body:JSON.stringify(payload)});
+    }catch(_){}
+  }
+  if(currentPage==='supercave'){renderSupercave();showToast(`✅ ${counted} sorties reconstruites depuis le journal`);}
+  else{showToast(`✅ ${counted} sorties reconstruites depuis le journal`);}
 }
 
 let activeCave=null;
@@ -5150,6 +5198,21 @@ function renderSettings(){
         <button id="btn-maturite-update" class="btn btn-secondary" onclick="runMaturiteUpdate()" style="width:100%;font-size:13px;">🤖 Recalculer apogée via IA (tous les vins)</button>
       </div>
     </div>`;
+  const statsSection=`
+    <div style="background:var(--white);border-radius:12px;padding:16px;box-shadow:var(--shadow-s);margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📊 Stats mouvements</div>
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5;">Reconstruire les entrées/sorties du graphique Accueil si elles ont été perdues. Les entrées se reconstruisent depuis les dates d'ajout des bouteilles, les sorties depuis le journal.</div>
+      <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:14px;">
+        <button class="btn btn-secondary" onclick="recalcStatsFromWines()" style="width:100%;font-size:12px;">🔄 Reconstruire les entrées (depuis dates d'ajout)</button>
+        <button class="btn btn-secondary" onclick="recalcSortiesFromJournal()" style="width:100%;font-size:12px;">🔄 Reconstruire les sorties (depuis journal)</button>
+      </div>
+      <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Forcer le nombre d'entrées ce mois-ci</div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:8px;">Si les données de départ du mois manquent, saisir manuellement le total d'entrées pour le mois en cours.</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="init-stats-count" type="number" min="0" max="9999" placeholder="ex: 42" class="form-input" style="flex:1;font-size:14px;text-align:center;">
+        <button class="btn btn-primary" onclick="initStatsToday(document.getElementById('init-stats-count').value)" style="flex:1;font-size:12px;">✅ Forcer entrées ce mois</button>
+      </div>
+    </div>`;
   const backupSection=`
     <div style="background:var(--white);border-radius:12px;padding:16px;box-shadow:var(--shadow-s);margin-bottom:12px;">
       <div style="font-size:12px;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">💾 Sauvegarde des données</div>
@@ -5162,7 +5225,7 @@ function renderSettings(){
       <div id="backup-info" style="font-size:11px;color:var(--ink3);margin-top:10px;text-align:center;"></div>
     </div>`;
 
-  list.innerHTML=z+maturiteSection+backupSection+cloudSection;
+  list.innerHTML=z+maturiteSection+statsSection+backupSection+cloudSection;
   const lastBackup=localStorage.getItem('cavavin_last_backup');
   const infoEl=document.getElementById('backup-info');
   if(infoEl&&lastBackup){
@@ -5866,9 +5929,11 @@ function renderSupercave(){
           </div>
           <div style="font-size:7px;color:var(--ink3);margin-top:3px;text-align:center;">${monthLabels[i]}</div>
         </div>`;}).join('')}
-    </div>`:`<div style="text-align:center;padding:16px 0 8px;font-size:12px;color:var(--ink3);">Aucune donnée pour ${year}.</div>
-    ${wines.length?`<button onclick="recalcStatsFromWines()" style="width:100%;margin-top:4px;padding:8px;border-radius:9px;border:1px solid var(--border);background:var(--paper2);font-size:12px;color:var(--ink2);cursor:pointer;">🔄 Reconstruire depuis les dates d'ajout</button>`:''}
-    `}
+    </div>`:`<div style="text-align:center;padding:12px 0 8px;font-size:12px;color:var(--ink3);">Aucune donnée pour ${year}.</div>`}
+  ${wines.length?`<div style="display:flex;gap:7px;margin-top:8px;">
+    <button onclick="recalcStatsFromWines()" style="flex:1;padding:8px 6px;border-radius:9px;border:1px solid var(--border);background:#E8F5E9;font-size:11px;font-weight:600;color:#2E7D32;cursor:pointer;">🔄 Reconstruire entrées</button>
+    <button onclick="recalcSortiesFromJournal()" style="flex:1;padding:8px 6px;border-radius:9px;border:1px solid var(--border);background:#FFEBEE;font-size:11px;font-weight:600;color:#C62828;cursor:pointer;">🔄 Reconstruire sorties</button>
+  </div>`:''}
   </div>
 
   <!-- MATURITÉ -->
