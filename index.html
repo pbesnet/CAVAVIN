@@ -4698,32 +4698,82 @@ function renderInvCaveTabs(){
     +sortedCaves().map(c=>`<button onclick="setICave(${c.id})" class="btn ${invCaveFilter===c.id?'btn-primary':'btn-secondary'} ft" style="white-space:nowrap;border-radius:99px;padding:5px 12px;font-size:11px;">📦 ${c.name}</button>`).join('');
 }
 
-/// ── Estimation IA de la fenêtre d'apogée ──
+/// ── Estimation IA de maturité — prompt expert (vin individuel) ────────────
+// Prompt structuré : expert en œnologie, contexte complet, classification 4 phases.
+// Retourne {apogeeDebut, apogeeFin, categorie} ou null en cas d'échec.
+async function estimateMaturiteAISingle(wine){
+  if(!_jwtToken||!currentUser)return null;
+  if(!wine||wine.couleur==='rhum')return null; // pas de maturité pour le rhum
+  const today=new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
+  const nomVin=[wine.nom,wine.appellation,wine.producteur].filter(Boolean).join(' / ');
+  const millesime=wine.millesime||'inconnu';
+  const extras=[];
+  if(wine.format&&wine.format!=='75cl')extras.push(`Format : ${wine.format}`);
+  if(wine.cepage)extras.push(`Cépage : ${wine.cepage}`);
+  if(wine.region)extras.push(`Région : ${wine.region}`);
+  const extrasStr=extras.length?`\nInformations complémentaires : ${extras.join(' · ')}` :'';
+  const prompt=
+`Tu es un expert en œnologie et en gestion de cave, avec une connaissance approfondie des millésimes mondiaux, des appellations, des styles de vinification et des courbes de vieillissement des vins.
+— CONTEXTE —
+Date d'évaluation : ${today}
+Vin : ${nomVin}
+Millésime : ${millesime}${extrasStr}
+— MISSION —
+Détermine la maturité actuelle de ce vin en te basant sur :
+1. La courbe de vieillissement typique de cette appellation et de ce style de vin
+2. La réputation œnologique du millésime indiqué (qualité, précocité, longévité)
+3. Le positionnement dans le temps par rapport à la fenêtre de dégustation généralement admise
+4. Les caractéristiques du producteur si elles influencent la garde (élevage, extraction, rendements)
+— CLASSIFICATION —
+Classe ce vin dans UNE SEULE des 4 catégories suivantes :
+🟣 maturation — Le vin est trop jeune. Ses composants (tanins, acidité, alcool) ne sont pas encore intégrés. Ouvrir maintenant serait prématuré.
+🟢 debut_apogee — Le vin commence à entrer dans sa fenêtre optimale. Il peut se boire avec plaisir mais gagnera encore en complexité et en harmonie dans les prochaines années.
+🟡 apogee — Le vin est au meilleur de lui-même. Complexité aromatique, équilibre et longueur sont à leur maximum. C'est le moment idéal pour l'ouvrir.
+🔴 declin — Le vin a dépassé son pic. Les arômes primaires et secondaires s'effacent, la structure s'amincit, des notes d'oxydation ou de fatigue peuvent apparaître. À consommer rapidement.
+— RÉPONSE —
+Réponds UNIQUEMENT en JSON strict, sans markdown ni texte autour :
+{"categorie":"maturation|debut_apogee|apogee|declin","apogeeDebut":YYYY,"apogeeFin":YYYY}
+Où apogeeDebut = première année de la fenêtre optimale (nombre entier), apogeeFin = dernière année.`;
+  try{
+    const r=await apiCall([{role:'user',content:prompt}],250);
+    const obj=JSON.parse(r.replace(/```json|```/g,'').trim());
+    if(!obj.apogeeDebut||!obj.apogeeFin)return null;
+    return{apogeeDebut:+obj.apogeeDebut,apogeeFin:+obj.apogeeFin,categorie:obj.categorie||null};
+  }catch(e){
+    console.warn('estimateMaturiteAISingle error wine',wine.id,e);
+    return null;
+  }
+}
+
+/// ── Estimation IA de la fenêtre d'apogée — batch avec prompt expert ────────
 // Appel silencieux en background après ajout, ou en batch depuis les paramètres.
 // Utilise le proxy backend — ne nécessite pas de clé API directe.
-async function estimateMaturiteAI(wineIds){
-  if(!_jwtToken||!currentUser)return 0; // proxy requiert une session active
-  const wines=wineIds.map(id=>db.wines.find(w=>w.id===id)).filter(Boolean);
+// Traite les vins par paquets de CONCURRENCY appels parallèles (prompt expert individuel).
+async function estimateMaturiteAI(wineIds,onProgress=null){
+  if(!_jwtToken||!currentUser)return 0;
+  const wines=wineIds
+    .map(id=>db.wines.find(w=>w.id===id))
+    .filter(Boolean)
+    .filter(w=>w.couleur!=='rhum');
   if(!wines.length)return 0;
   let updated=0;
-  const batchSize=15;
-  for(let i=0;i<wines.length;i+=batchSize){
-    const batch=wines.slice(i,i+batchSize);
-    const ctx=batch.map(w=>`id=${w.id}|"${(w.nom||'').replace(/"/g,"'")}"|millesime:${w.millesime||'?'}|${w.couleur||''}|region:"${w.region||''}"|appellation:"${w.appellation||''}"|producteur:"${(w.producteur||'').replace(/"/g,"'")}"`).join('\n');
-    try{
-      const r=await apiCall([{role:'user',content:`Tu es un grand sommelier et expert en viticulture mondiale. Pour chaque vin listé ci-dessous, détermine avec précision la fenêtre d'apogée : apogeeDebut (première année où le vin atteint son plein potentiel) et apogeeFin (dernière année avant déclin notable). Base-toi sur : le cépage et son potentiel de garde connu, l'appellation et son terroir (grand cru, premier cru, village…), la région viticole et son style (Bordeaux, Bourgogne, Rhône, Loire, Toscane, Rioja…), le millésime et sa qualité reconnue (grands millésimes vs millésimes difficiles), le producteur et son style (élevage long/court, extraction…), la couleur (rouge > blanc > rosé > champagne en général), et toute donnée accessible sur ce vin spécifique. Donne des dates précises — évite les fourchettes trop larges. Réponds UNIQUEMENT en JSON array valide, sans texte avant ni après :\n${ctx}\nFormat attendu : [{"id":X,"apogeeDebut":YYYY,"apogeeFin":YYYY},...]\nSi le millésime est inconnu, estime à partir d'une hypothèse raisonnable (millésime moyen récent).`}],700);
-      const arr=JSON.parse(r.replace(/```json|```/g,'').trim());
-      arr.forEach(({id,apogeeDebut,apogeeFin})=>{
-        const w=db.wines.find(x=>x.id===id);
-        if(w&&apogeeDebut&&apogeeFin){
-          w.apogeeDebut=apogeeDebut;w.apogeeFin=apogeeFin;
-          w.maturiteUpdatedAt=new Date().toISOString();
-          updated++;
-        }
-      });
-      // Sauvegarde après chaque batch — protège contre fermeture d'onglet en cours de traitement
-      if(updated)dbSave();
-    }catch(e){console.warn('estimateMaturiteAI batch error',e);}
+  const CONCURRENCY=3; // appels parallèles max (évite rate-limit Anthropic)
+  for(let i=0;i<wines.length;i+=CONCURRENCY){
+    const batch=wines.slice(i,i+CONCURRENCY);
+    const results=await Promise.all(batch.map(w=>estimateMaturiteAISingle(w)));
+    results.forEach((res,j)=>{
+      const w=batch[j];
+      if(res&&res.apogeeDebut&&res.apogeeFin){
+        w.apogeeDebut=res.apogeeDebut;
+        w.apogeeFin=res.apogeeFin;
+        w.maturiteUpdatedAt=new Date().toISOString();
+        w.maturiteHeuristique=false;
+        updated++;
+      }
+    });
+    if(updated)dbSave();
+    // Callback de progression pour la UI (ex: bouton settings)
+    if(onProgress)onProgress(Math.min(i+CONCURRENCY,wines.length),wines.length,updated);
   }
   return updated;
 }
@@ -4731,9 +4781,12 @@ async function estimateMaturiteAI(wineIds){
 // Batch annuel IA — lancé depuis les paramètres (recalcule tous les vins)
 async function runMaturiteUpdate(){
   const btn=document.getElementById('btn-maturite-update');
-  if(btn){btn.disabled=true;btn.textContent='⏳ IA en cours…';}
+  const total=db.wines.filter(w=>w.couleur!=='rhum').length;
+  if(btn){btn.disabled=true;btn.textContent=`⏳ 0 / ${total} vins…`;}
   const wineIds=db.wines.map(w=>w.id);
-  const n=await estimateMaturiteAI(wineIds);
+  const n=await estimateMaturiteAI(wineIds,(done,tot,upd)=>{
+    if(btn)btn.textContent=`⏳ ${done} / ${tot} — ${upd} mis à jour…`;
+  });
   // Forcer le sync cloud immédiatement (sans attendre le timer 200ms)
   if(n&&!isDemo&&currentUser&&_jwtToken){
     clearTimeout(syncTimer);
