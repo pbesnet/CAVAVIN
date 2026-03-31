@@ -4783,7 +4783,11 @@ Où apogeeDebut = première année de la fenêtre optimale (entier), apogeeFin =
 /// ── Estimation IA de la fenêtre d'apogée — batch avec prompt expert ────────
 // Appel silencieux en background après ajout, ou en batch depuis les paramètres.
 // Utilise le proxy backend — ne nécessite pas de clé API directe.
-// Traite les vins par paquets de CONCURRENCY appels parallèles (prompt expert individuel).
+// Flag d'annulation pour le batch IA (mis à true par stopMaturiteUpdate)
+let _maturiteAbort=false;
+
+// Traite les vins UN PAR UN avec un délai entre chaque appel pour ne pas saturer l'API.
+// Sauvegarde toutes les SAVE_EVERY vins pour limiter les écritures.
 async function estimateMaturiteAI(wineIds,onProgress=null){
   if(!_jwtToken||!currentUser)return 0;
   const wines=wineIds
@@ -4791,13 +4795,15 @@ async function estimateMaturiteAI(wineIds,onProgress=null){
     .filter(Boolean)
     .filter(w=>w.couleur!=='rhum');
   if(!wines.length)return 0;
+  _maturiteAbort=false;
   let updated=0;
-  const CONCURRENCY=3; // appels parallèles max (évite rate-limit Anthropic)
-  for(let i=0;i<wines.length;i+=CONCURRENCY){
-    const batch=wines.slice(i,i+CONCURRENCY);
-    const results=await Promise.all(batch.map(w=>estimateMaturiteAISingle(w)));
-    results.forEach((res,j)=>{
-      const w=batch[j];
+  const DELAY_MS=150;   // pause entre deux appels API (évite le rate-limit)
+  const SAVE_EVERY=10;  // sauvegarde locale groupée toutes les N réponses
+  for(let i=0;i<wines.length;i++){
+    if(_maturiteAbort)break;
+    const w=wines[i];
+    try{
+      const res=await estimateMaturiteAISingle(w);
       if(res&&res.apogeeDebut&&res.apogeeFin){
         w.apogeeDebut=res.apogeeDebut;
         w.apogeeFin=res.apogeeFin;
@@ -4805,33 +4811,48 @@ async function estimateMaturiteAI(wineIds,onProgress=null){
         w.maturiteHeuristique=false;
         updated++;
       }
-    });
-    if(updated)dbSave();
-    // Callback de progression pour la UI (ex: bouton settings)
-    if(onProgress)onProgress(Math.min(i+CONCURRENCY,wines.length),wines.length,updated);
+    }catch(e){
+      console.warn('estimateMaturiteAI skip wine',w.id,e);
+    }
+    // Sauvegarde groupée
+    if((i+1)%SAVE_EVERY===0&&updated)dbSave();
+    // Callback progression
+    if(onProgress)onProgress(i+1,wines.length,updated);
+    // Pause pour laisser respirer l'event loop et l'API
+    if(i<wines.length-1)await new Promise(r=>setTimeout(r,DELAY_MS));
   }
+  if(updated)dbSave(); // sauvegarde finale si reste
   return updated;
 }
 
 // Batch annuel IA — lancé depuis les paramètres (recalcule tous les vins)
 async function runMaturiteUpdate(){
   const btn=document.getElementById('btn-maturite-update');
+  const btnStop=document.getElementById('btn-maturite-stop');
   const total=db.wines.filter(w=>w.couleur!=='rhum').length;
   if(btn){btn.disabled=true;btn.textContent=`⏳ 0 / ${total} vins…`;}
+  if(btnStop)btnStop.style.display='inline-block';
   const wineIds=db.wines.map(w=>w.id);
   const n=await estimateMaturiteAI(wineIds,(done,tot,upd)=>{
     if(btn)btn.textContent=`⏳ ${done} / ${tot} — ${upd} mis à jour…`;
   });
+  if(btnStop)btnStop.style.display='none';
+  const wasStopped=_maturiteAbort;
   // Forcer le sync cloud immédiatement (sans attendre le timer 200ms)
   if(n&&!isDemo&&currentUser&&_jwtToken){
     clearTimeout(syncTimer);
     try{await _doCloudSync();}catch(_){}
   }
   if(btn){btn.disabled=false;btn.textContent='🤖 Recalculer via IA (tous les vins)';}
-  showToast(n?`✅ ${n} vin${n>1?'s':''} mis à jour et synchronisés`:'ℹ️ Aucun vin mis à jour — vérifiez la connexion');
+  if(wasStopped){
+    showToast(n?`⏹️ Arrêté — ${n} vin${n>1?'s':''} mis à jour`:'⏹️ Arrêté');
+  } else {
+    showToast(n?`✅ ${n} vin${n>1?'s':''} mis à jour et synchronisés`:'ℹ️ Aucun vin mis à jour — vérifiez la connexion');
+  }
   if(currentPage==='inv')renderInv();
   if(currentPage==='settings')renderSettings();
 }
+function stopMaturiteUpdate(){_maturiteAbort=true;}
 
 // ── Initialisation heuristique des maturités manquantes ──────────────────────
 // Pour toutes les bouteilles sans apogeeDebut/apogeeFin (ni IA ni saisie manuelle),
@@ -5467,7 +5488,10 @@ function renderSettings(){
       })()}
       <div style="display:flex;flex-direction:column;gap:7px;">
         <button id="btn-maturite-heuristique" class="btn btn-secondary" onclick="runInitHeuristique()" style="width:100%;font-size:13px;">⚡ Init période apogée (heuristique)</button>
-        <button id="btn-maturite-update" class="btn btn-secondary" onclick="runMaturiteUpdate()" style="width:100%;font-size:13px;">🤖 Recalculer apogée via IA (tous les vins)</button>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button id="btn-maturite-update" class="btn btn-secondary" onclick="runMaturiteUpdate()" style="flex:1;font-size:13px;">🤖 Recalculer apogée via IA (tous les vins)</button>
+          <button id="btn-maturite-stop" class="btn btn-danger" onclick="stopMaturiteUpdate()" style="display:none;font-size:13px;padding:6px 12px;white-space:nowrap;">⏹ Stop</button>
+        </div>
       </div>
     </div>`;
   const statsSection=`
