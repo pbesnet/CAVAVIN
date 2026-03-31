@@ -2427,8 +2427,9 @@ function _renderCaveGrid(cave,allWines,{batchPosSet=new Set(),forcedPos=null,sug
   let html='<div style="display:flex;flex-direction:column;gap:2px;">';
   cave.clayettes.forEach((cl,ci)=>{
     const clDepthG=cl.depth||1;
+    const clLabel=cl.label||('C'+(ci+1));
     html+=`<div style="display:flex;align-items:center;gap:6px;">`;
-    html+=`<div style="font-size:8px;font-weight:600;color:var(--ink4);width:12px;text-align:right;flex-shrink:0;">${ci+1}</div>`;
+    html+=`<div style="font-size:7px;font-weight:700;color:var(--ink4);width:auto;max-width:40px;text-align:right;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${cl.label||('Clayette '+(ci+1))}">${clLabel}</div>`;
     html+=`<div style="display:flex;flex-direction:column;gap:${gap}px;">`;
     for(let r=0;r<cl.rows;r++){
       // Pour depth=2 : 2 sous-rangées par ligne (AR en haut = dv=1, AV en bas = dv=0)
@@ -2496,7 +2497,10 @@ function renderPlacementPreview(){
   const isRhumForm=couleurForCave==='rhum';
   const selectableCaves=db.caves.filter(c=>!c.vrac&&(isRhumForm?c.isRhum:!c.isRhum));
   if(!selectableCaves.length){container.style.display='none';return;}
-  if(!activeCave||!getCave(activeCave)||getCave(activeCave)?.isRhum!==isRhumForm)activeCave=selectableCaves[0]?.id||activeCave;
+  if(!activeCave||!getCave(activeCave)||getCave(activeCave)?.isRhum!==isRhumForm){
+    activeCave=selectableCaves[0]?.id||activeCave;
+    updateTopbarSel(); // synchroniser le sélecteur topbar après auto-switch
+  }
   const cave=getCave(activeCave);
   if(!cave){container.style.display='none';return;}
 
@@ -2508,8 +2512,8 @@ function renderPlacementPreview(){
   const mainLabel=isEditMode?'Nouvelle position du vin':'Cave cible';
   let html=`<div style="margin-bottom:10px;">
     <div style="font-size:10px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">${mainLabel}</div>
-    <select onchange="activeCave=+this.value;if(editingWineId!==null){_forcedPosition=null;}renderPlacementPreview();" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;background:var(--white);color:var(--ink);font-family:var(--font);">
-      ${selectableCaves.map(c=>`<option value="${c.id}" ${c.id===activeCave?'selected':''}>${c.name}${c.lieu?' · '+c.lieu:''}${c.type?' ('+c.type+')':''}</option>`).join('')}
+    <select onchange="activeCave=+this.value;if(editingWineId!==null){_forcedPosition=null;}updateTopbarSel();renderPlacementPreview();" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;background:var(--white);color:var(--ink);font-family:var(--font);">
+      ${selectableCaves.map(c=>`<option value="${c.id}" ${c.id===activeCave?'selected':''}>${c.name}${c.lieu?' · '+c.lieu:''}${c.type?' ('+c.type+')':''}${c.isRhum?' 🥃':''}</option>`).join('')}
     </select>
   </div>`;
 
@@ -2555,7 +2559,7 @@ function renderPlacementPreview(){
       const pp=parsePos(_forcedPosition);
       html+=`<div style="font-size:11px;font-weight:600;color:#2060D0;margin-bottom:4px;display:flex;align-items:center;gap:4px;">
         <span style="width:6px;height:6px;border-radius:50%;background:#2060D0;display:inline-block;"></span>
-        Nouvelle position — Clayette ${pp?pp.ci+1:'?'} · L${pp?pp.r+1:'?'} · C${pp?pp.c+1:'?'}
+        Nouvelle position — ${pp?(cave.clayettes[pp.ci]?.label||('Clayette '+(pp.ci+1))):'?'} · L${pp?pp.r+1:'?'} · C${pp?pp.c+1:'?'}
         <button onclick="_forcedPosition=null;renderPlacementPreview();" style="margin-left:auto;font-size:10px;background:var(--paper2);border:1px solid var(--border);border-radius:6px;padding:2px 7px;color:var(--ink2);cursor:pointer;font-family:var(--font);">↺ Garder actuelle</button>
       </div>`;
     } else if(showingOriginalCave&&_editOriginalPos){
@@ -3906,8 +3910,16 @@ function syncFormToBottleType(){
   if(submitBtn)submitBtn.textContent=isRhum?'🥃 Ajouter à la cave':'🍾 Ajouter à la cave';
   const nomEl=document.getElementById('add-nom');
   if(nomEl)nomEl.placeholder=isRhum?'Diplomatico Reserva, Clément…':'Château Margaux';
+  // Titre topbar selon type (sauf en mode édition)
+  if(editingWineId===null){
+    const tb=document.getElementById('topbar-title');
+    if(tb)tb.textContent=isRhum?'➕ Ajouter un rhum':'➕ Ajouter un vin';
+  }
 }
 function onAddCouleurChange(){renderPlacementPreview();syncFormToBottleType();}
+
+// Navigation vers le form ajout depuis un emplacement vide dans la cave (force la position)
+function navAddFromSlot(pos){_pendingForcedPosition=pos;nav('add');}
 
 function updateWizMode(){
   const mode=document.getElementById('wc-mode').value;
@@ -4108,8 +4120,25 @@ function toggleSidebar(){
 
 function updateTopbarSel(){
   const sel=document.getElementById('topbar-cave-sel');
-  sel.innerHTML=sortedCaves().map(c=>`<option value="${c.id}" ${c.id===activeCave?'selected':''}>${c.name}</option>`).join('');
-  sel.onchange=()=>{activeCave=parseInt(sel.value);updateSidebarCaves();nav('cave');const c=getCave(activeCave);if(c)showToast('✅ '+c.name);};
+  // En mode add, filtrer selon type rhum/vin en cours
+  const isAddPage=currentPage==='add';
+  const isRhumForm=isAddPage&&(document.getElementById('add-couleur')?.value==='rhum');
+  const caves=isAddPage
+    ?sortedCaves().filter(c=>!c.vrac&&(isRhumForm?c.isRhum:!c.isRhum))
+    :sortedCaves();
+  sel.innerHTML=caves.map(c=>`<option value="${c.id}" ${c.id===activeCave?'selected':''}>${c.name}${c.isRhum?' 🥃':''}</option>`).join('');
+  sel.onchange=()=>{
+    activeCave=parseInt(sel.value);
+    updateSidebarCaves();
+    if(currentPage==='add'){
+      // Rester sur le form, mettre à jour la preview
+      syncFormToBottleType();
+      renderPlacementPreview();
+    } else {
+      nav('cave');
+      const c=getCave(activeCave);if(c)showToast('✅ '+c.name);
+    }
+  };
 }
 
 function selectCave(id){
@@ -4800,6 +4829,7 @@ let _aiApogeeDebut=null;   // apogée fournie par l'IA (doAiFill) — transmise 
 let _aiApogeeFin=null;
 let _forcedPosition=null;      // position forcée (mode ÉDITION uniquement)
 let _forcedPlacements=[];      // [{caveId,pos}] — placements forcés multi-cave (mode AJOUT)
+let _pendingForcedPosition=null; // position à forcer au prochain nav('add') depuis un slot vide
 
 // Redimensionne une image base64 à maxSide px max (pour alléger les requêtes IA)
 function resizeImage(b64,maxSide=600){
@@ -5155,7 +5185,7 @@ function renderCavePage(){
             const hlStyle=isHL?'box-shadow:0 0 0 3px #00FF66,0 0 12px #00FF66;z-index:2;position:relative;':'';
             rowInner+=`<div class="cave-bottle" onclick="showDetail(${w.id})" title="${(w.nom||'').slice(0,22)}" style="width:${sz}px;height:${sz}px;background:${bg};${hlStyle}${dimmed?'opacity:.6;':''}"></div>`;
           }else{
-            rowInner+=`<div class="cave-slot-empty" onclick="nav('add')" style="width:${sz}px;height:${sz}px;${dimmed?'border-style:dashed;opacity:.45;':''}"></div>`;
+            rowInner+=`<div class="cave-slot-empty" onclick="navAddFromSlot('${pos}')" style="width:${sz}px;height:${sz}px;${dimmed?'border-style:dashed;opacity:.45;':''}"></div>`;
           }
         }
         rowsHTML+=`<div style="display:flex;align-items:center;gap:4px;margin-bottom:${mbPx};">${rowInner}</div>`;
@@ -5538,6 +5568,8 @@ function nav(page){
   if(page==='add'){
     // Réinitialiser le formulaire sauf si on vient d'editWine() (editingWineId déjà fixé)
     if(editingWineId===null) resetAddForm();
+    // Position forcée depuis un clic sur emplacement vide (navAddFromSlot)
+    if(_pendingForcedPosition){_forcedPosition=_pendingForcedPosition;_pendingForcedPosition=null;}
     syncFormToBottleType();
     renderPlacementPreview();
   }
