@@ -1594,6 +1594,10 @@ async function sbSignOut(){
   if(_signingOut)return; // anti double-tap
   if(isDemo){
     isDemo=false;
+    // Effacer le token pour éviter la reconnexion automatique au refresh
+    localStorage.removeItem('cavavin_token');
+    _jwtToken='';
+    currentUser=null;
     db={caves:[],wines:[],journal:[],nCave:0,nWine:0,statsAnnuelles:{}};
     document.getElementById('sidebar-demo').style.display='none';
     document.getElementById('sidebar')?.classList.remove('visible');
