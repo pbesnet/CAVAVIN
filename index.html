@@ -5165,7 +5165,7 @@ function renderSettings(){
       <button class="btn btn-secondary" onclick="saveApiKey()" style="width:100%;font-size:13px;">Sauvegarder la clé</button>
     </div>`;
 
-  const nSansMaturite=db.wines.filter(w=>!w.apogeeDebut||!w.apogeeFin).length;
+  const nSansMaturite=db.wines.filter(w=>w.couleur!=='rhum'&&(!w.apogeeDebut||!w.apogeeFin)).length;
   const maturiteSection=`
     <div style="background:var(--white);border-radius:12px;padding:16px;box-shadow:var(--shadow-s);margin-bottom:12px;">
       <div style="font-size:12px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🍇 Maturité des vins</div>
@@ -5189,7 +5189,7 @@ function renderSettings(){
         </span>
       </div>
       ${(()=>{
-        const nSansMillesime=db.wines.filter(w=>!w.millesime).length;
+        const nSansMillesime=db.wines.filter(w=>w.couleur!=='rhum'&&!w.millesime).length;
         const msgs=[];
         if(nSansMaturite>0)msgs.push(`⚠️ <b>${nSansMaturite} bouteille${nSansMaturite>1?'s':''}</b> sans période d'apogée`);
         if(nSansMillesime>0)msgs.push(`🔍 <b>${nSansMillesime} bouteille${nSansMillesime>1?'s':''}</b> sans millésime`);
@@ -5765,6 +5765,111 @@ function nav(page){
 }
 
 // ═══════════════════════════════════════════
+// RECO WE — Météo + IA sommelier
+// ═══════════════════════════════════════════
+function _wxIcon(c){
+  if(c===0)return'☀️';if(c<=2)return'🌤️';if(c===3)return'☁️';
+  if(c<=48)return'🌫️';if(c<=55)return'🌦️';if(c<=65)return'🌧️';
+  if(c<=77)return'❄️';if(c<=82)return'🌦️';if(c<=99)return'⛈️';return'🌡️';
+}
+function _wxLabel(c){
+  if(c===0)return'Ensoleillé';if(c<=2)return'Peu nuageux';if(c===3)return'Couvert';
+  if(c<=48)return'Brouillard';if(c<=55)return'Bruine';if(c<=65)return'Pluie';
+  if(c<=77)return'Neige';if(c<=82)return'Averses';if(c<=99)return'Orage';return'Variable';
+}
+function _getWeekendDays(){
+  const today=new Date();const d=today.getDay();
+  let daysToFri;
+  if(d===0)daysToFri=5;else if(d===6)daysToFri=6;else daysToFri=5-d;
+  if(daysToFri===0)daysToFri=7; // vendredi déjà passé → weekend suivant
+  const fri=new Date(today);fri.setDate(today.getDate()+daysToFri);
+  const sat=new Date(fri);sat.setDate(fri.getDate()+1);
+  const sun=new Date(fri);sun.setDate(fri.getDate()+2);
+  const mo=['jan','fév','mar','avr','mai','jun','jul','aoû','sep','oct','nov','déc'];
+  return{fri,sat,sun,label:`${fri.getDate()}–${sun.getDate()} ${mo[sun.getMonth()]}`,daysToFri};
+}
+function _checkAutoRecoWE(){
+  if(!_jwtToken||isDemo)return;
+  const now=new Date();
+  if(now.getDay()!==3||now.getHours()<12)return; // mercredi après 12h seulement
+  const reco=db.recoWE;
+  if(reco&&reco.updatedAt){
+    const last=new Date(reco.updatedAt);
+    const thisWedNoon=new Date(now.getFullYear(),now.getMonth(),now.getDate(),12,0,0);
+    if(last>=thisWedNoon)return; // déjà fait ce mercredi
+  }
+  refreshRecoWE(true);
+}
+async function refreshRecoWE(auto=false){
+  if(!_jwtToken||isDemo)return;
+  if(!db.recoWE)db.recoWE={};
+  db.recoWE.loading=true;db.recoWE.error=null;
+  if(currentPage==='supercave')renderSupercave();
+  try{
+    // 1. Géolocalisation
+    const coords=await new Promise((res,rej)=>
+      navigator.geolocation.getCurrentPosition(res,e=>rej(new Error(
+        e.code===1?'Géolocalisation refusée — autorise l\'accès dans les réglages':'Position indisponible'
+      )),{timeout:9000,maximumAge:300000})
+    );
+    const lat=coords.coords.latitude,lon=coords.coords.longitude;
+    // 2. Nom de ville (Nominatim — gratuit)
+    let locationName=`${lat.toFixed(1)}°N, ${lon.toFixed(1)}°E`;
+    try{
+      const gr=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=fr`,{signal:AbortSignal.timeout(5000)});
+      const gd=await gr.json();
+      locationName=gd.address?.city||gd.address?.town||gd.address?.village||gd.address?.county||locationName;
+    }catch(_){}
+    // 3. Météo Open-Meteo (gratuit, sans clé API)
+    const wkd=_getWeekendDays();
+    const wr=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode,windspeed_10m_max&timezone=auto&forecast_days=14`);
+    const wd=await wr.json();
+    if(!wd.daily)throw new Error('Données météo indisponibles');
+    const times=wd.daily.time;
+    const fmtD=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const findIdx=d=>{const s=fmtD(d);const i=times.indexOf(s);return i>=0?i:null;};
+    const friIdx=findIdx(wkd.fri),satIdx=findIdx(wkd.sat),sunIdx=findIdx(wkd.sun);
+    if(friIdx===null)throw new Error('Prévisions insuffisantes pour ce weekend');
+    const mkDay=(label,idx)=>({label,icon:_wxIcon(wd.daily.weathercode[idx]),wxLabel:_wxLabel(wd.daily.weathercode[idx]),max:Math.round(wd.daily.temperature_2m_max[idx]),min:Math.round(wd.daily.temperature_2m_min[idx]),precip:wd.daily.precipitation_probability_max[idx]||0,wind:Math.round(wd.daily.windspeed_10m_max[idx])});
+    const weather=[mkDay('Ven',friIdx),satIdx!==null?mkDay('Sam',satIdx):null,sunIdx!==null?mkDay('Dim',sunIdx):null].filter(Boolean);
+    const avgTemp=Math.round(weather.reduce((s,d)=>s+d.max,0)/weather.length);
+    const isRainy=weather.some(d=>d.precip>50),isWarm=avgTemp>22,isCold=avgTemp<10;
+    const wxSummary=weather.map(d=>`${d.label} ${d.icon} ${d.max}°/${d.min}°C pluie ${d.precip}%`).join(' | ');
+    // 4. Contexte cave pour l'IA
+    const wVin=db.wines.filter(w=>w.couleur!=='rhum'&&w.millesime);
+    const candidats=wVin.map(w=>({...w,mat:maturiteStatus(w)})).sort((a,b)=>{const o={apogee:0,debut_apogee:1,declin:2,maturation:3};return(o[a.mat]??4)-(o[b.mat]??4);}).slice(0,30);
+    const rhumsCtx=db.wines.filter(w=>w.couleur==='rhum').slice(0,20);
+    const vinCtx=candidats.map(w=>`[ID:${w.id}] ${w.nom} ${w.millesime}${w.region?', '+w.region:''}${w.appellation?', '+w.appellation:''}${w.producteur?' ('+w.producteur+')':''} | ${w.mat} | ${w.prix||0}€`).join('\n');
+    const rhumCtx=rhumsCtx.map(r=>`[ID:${r.id}] ${r.nom}${r.millesime?' '+r.millesime:''}${r.distillerie?', '+r.distillerie:''}${r.pays?', '+r.pays:''}${r.degre?', '+r.degre+'°':''}`).join('\n');
+    const prompt=`Tu es un expert sommelier et barman créatif. Weekend du ${wkd.label} à ${locationName} :
+MÉTÉO : ${wxSummary}
+Température moyenne ${avgTemp}°C${isRainy?' — temps pluvieux et cosy':isWarm?' — temps chaud et estival':isCold?' — temps froid hivernal':' — météo douce'}
+
+CAVE À VINS disponibles (triées maturité) :
+${vinCtx||'Aucun vin millésimé'}
+
+CAVE À RHUM :
+${rhumCtx||'Aucun rhum'}
+
+MISSION : Recommande 2 vins et 1 rhum parfaitement adaptés à la météo. Favorise apogée et début_apogée. JSON strict uniquement :
+{"conseil_general":"<phrase poétique max 18 mots>","vins":[{"id":<n>,"raison":"<max 12 mots météo/maturité>","accord":"<plat idéal>","temp_service":"<ex: 16-18°C>"},{"id":<n>,"raison":"<max 12 mots>","accord":"<plat>","temp_service":"<temp>"}],"rhum":{"id":<n>,"cocktail":"<nom cocktail ou Pure dégustation>","recette":"<2-3 ingrédients>","raison":"<max 12 mots>"}}`;
+    const aiResp=await apiCall([{role:'user',content:prompt}],600);
+    let reco;
+    try{const m=aiResp.match(/\{[\s\S]*\}/);reco=JSON.parse(m[0]);}
+    catch(e){throw new Error('Réponse IA invalide — réessaie');}
+    // 5. Enrichir avec données réelles
+    const enrich=item=>{if(!item)return null;const w=db.wines.find(x=>x.id===item.id);if(!w)return null;return{...item,nom:w.nom,millesime:w.millesime,couleur:w.couleur,region:w.region,mat:maturiteStatus(w)};};
+    db.recoWE={updatedAt:new Date().toISOString(),auto,location:locationName,lat,lon,weekend:wkd.label,weather,conseil:reco.conseil_general,vins:(reco.vins||[]).map(enrich).filter(Boolean),rhum:enrich(reco.rhum),loading:false,error:null};
+    dbSave();
+  }catch(e){
+    if(!db.recoWE)db.recoWE={};
+    db.recoWE.loading=false;db.recoWE.error=e.message;
+    dbSave();
+  }
+  if(currentPage==='supercave')renderSupercave();
+}
+
+// ═══════════════════════════════════════════
 // SUPERCAVE — Vision globale patrimoine
 // ═══════════════════════════════════════════
 function renderSupercave(){
@@ -5775,6 +5880,7 @@ function renderSupercave(){
     el.innerHTML=`<div class="empty" style="padding:60px 0;"><div class="empty-icon">🌍</div><div>Aucun vin dans vos caves</div></div>`;
     return;
   }
+  _checkAutoRecoWE();
   const total=wines.length;
   const year=new Date().getFullYear();
   const winesVin=wines.filter(w=>w.couleur!=='rhum');
@@ -5869,6 +5975,70 @@ function renderSupercave(){
     <div style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:700;color:var(--ink);line-height:1.1;">🏠 Accueil</div>
     <div style="font-size:13px;color:var(--ink2);margin-top:4px;">${totalCaves} cave${totalCaves>1?'s':''} · ${total} bouteille${total>1?'s':''}${vracCount>0?` <span style="opacity:.6;">(dont ${vracCount} en vrac)</span>`:''}</div>
   </div>
+
+  <!-- RECO WE IA -->
+  ${(()=>{
+    const reco=db.recoWE||{};
+    const isLoading=!!reco.loading;
+    const hasReco=!isLoading&&!reco.error&&reco.vins&&reco.vins.length>0;
+    const isEmpty=!isLoading&&!reco.error&&!hasReco;
+    return`<div style="background:linear-gradient(135deg,#1B1B3A 0%,#2C1654 55%,#1a2744 100%);border-radius:16px;padding:15px 15px 13px;box-shadow:0 4px 22px rgba(0,0,0,.28);margin-bottom:16px;position:relative;overflow:hidden;">
+      <div style="position:absolute;inset:0;pointer-events:none;opacity:.1;background:radial-gradient(#fff 1px,transparent 1px) 0 0/32px 32px,radial-gradient(#fff 1px,transparent 1px) 16px 16px/44px 44px;"></div>
+      <div style="position:relative;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
+          <div>
+            <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:700;color:#fff;line-height:1.1;">✨ Reco du weekend</div>
+            <div style="font-size:10px;color:rgba(255,255,255,.45);margin-top:2px;">${hasReco?`${reco.location} · ${reco.weekend}`:isLoading?'Analyse en cours…':'Reco IA personnalisée selon météo + cave'}</div>
+          </div>
+          <button onclick="refreshRecoWE()" ${isLoading?'disabled':''} style="background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.22);border-radius:20px;padding:5px 12px;color:#fff;font-size:11px;font-weight:600;cursor:${isLoading?'default':'pointer'};white-space:nowrap;opacity:${isLoading?.6:1};">${isLoading?'⏳':'🔄'}</button>
+        </div>
+        ${isLoading?`
+          <div style="display:flex;gap:6px;margin-bottom:10px;">${['Ven','Sam','Dim'].map(d=>`<div style="flex:1;background:rgba(255,255,255,.07);border-radius:8px;height:62px;display:flex;align-items:center;justify-content:center;font-size:9px;color:rgba(255,255,255,.25);">${d}</div>`).join('')}</div>
+          <div style="height:14px;background:rgba(255,255,255,.07);border-radius:6px;margin-bottom:8px;width:70%;"></div>
+          <div style="height:52px;background:rgba(255,255,255,.07);border-radius:10px;margin-bottom:6px;"></div>
+          <div style="height:52px;background:rgba(255,255,255,.07);border-radius:10px;margin-bottom:6px;"></div>
+          <div style="height:52px;background:rgba(160,88,10,.2);border-radius:10px;"></div>
+        `:reco.error?`
+          <div style="background:rgba(220,38,38,.2);border:1px solid rgba(220,38,38,.3);border-radius:10px;padding:10px 12px;font-size:12px;color:#fca5a5;line-height:1.4;">⚠️ ${reco.error}</div>
+        `:hasReco?`
+          <div style="display:flex;gap:5px;margin-bottom:11px;">
+            ${(reco.weather||[]).map(d=>`<div style="flex:1;background:rgba(255,255,255,.09);border-radius:9px;padding:7px 4px;text-align:center;">
+              <div style="font-size:20px;line-height:1;">${d.icon}</div>
+              <div style="font-size:9px;color:rgba(255,255,255,.55);margin-top:2px;">${d.label}</div>
+              <div style="font-size:12px;font-weight:700;color:#fff;margin-top:1px;">${d.max}°</div>
+              <div style="font-size:9px;color:rgba(255,255,255,.35);">${d.precip}%💧</div>
+            </div>`).join('')}
+          </div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:13px;font-style:italic;color:rgba(255,255,255,.7);margin-bottom:11px;line-height:1.45;text-align:center;">"${reco.conseil}"</div>
+          ${(reco.vins||[]).map(v=>`
+          <div onclick="showDetail(${v.id})" style="display:flex;align-items:center;gap:9px;background:rgba(255,255,255,.09);border-radius:10px;padding:9px 11px;margin-bottom:6px;cursor:pointer;border:1px solid rgba(255,255,255,.07);" onmouseover="this.style.background='rgba(255,255,255,.16)'" onmouseout="this.style.background='rgba(255,255,255,.09)'">
+            ${couleurPastille(v.couleur)}
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${v.nom}${v.millesime?' '+v.millesime:''}</div>
+              <div style="font-size:10px;color:rgba(255,255,255,.55);margin-top:1px;">${v.raison}</div>
+              ${v.accord?`<div style="font-size:9px;color:rgba(255,255,255,.32);margin-top:1px;">🍽️ ${v.accord}${v.temp_service?' · '+v.temp_service:''}</div>`:''}
+            </div>
+          </div>`).join('')}
+          ${reco.rhum?`
+          <div onclick="showDetail(${reco.rhum.id})" style="display:flex;align-items:center;gap:9px;background:rgba(140,76,0,.3);border-radius:10px;padding:9px 11px;cursor:pointer;border:1px solid rgba(180,110,0,.3);" onmouseover="this.style.background='rgba(140,76,0,.45)'" onmouseout="this.style.background='rgba(140,76,0,.3)'">
+            <span style="font-size:20px;flex-shrink:0;">🥃</span>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;font-weight:700;color:#FFCC80;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${reco.rhum.cocktail} · ${reco.rhum.nom}${reco.rhum.millesime?' '+reco.rhum.millesime:''}</div>
+              <div style="font-size:10px;color:rgba(255,200,100,.6);margin-top:1px;">${reco.rhum.recette}</div>
+              <div style="font-size:9px;color:rgba(255,200,100,.38);margin-top:1px;">${reco.rhum.raison}</div>
+            </div>
+          </div>`:''}
+          <div style="text-align:right;margin-top:8px;font-size:9px;color:rgba(255,255,255,.22);">${reco.auto?'🤖 auto':'✋ manuel'} · ${new Date(reco.updatedAt).toLocaleDateString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>
+        `:`
+          <div style="text-align:center;padding:14px 0 6px;">
+            <div style="font-size:36px;margin-bottom:8px;">🍷🤖</div>
+            <div style="font-size:12px;color:rgba(255,255,255,.55);margin-bottom:14px;line-height:1.5;">L'IA analyse ta cave + la météo du WE<br>pour te recommander les bouteilles parfaites</div>
+            <button onclick="refreshRecoWE()" style="background:linear-gradient(135deg,#C23052,#8B1A2E);border:none;border-radius:12px;padding:10px 24px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);box-shadow:0 3px 12px rgba(194,48,82,.4);">✨ Générer ma reco</button>
+          </div>
+        `}
+      </div>
+    </div>`;
+  })()}
 
   <!-- KPIS -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;">
