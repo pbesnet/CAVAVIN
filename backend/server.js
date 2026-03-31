@@ -66,7 +66,7 @@ app.post('/api/auth/login', async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      'SELECT id, email, password_hash, role, api_key FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, role, api_key, demo_only FROM users WHERE email = $1',
       [email.toLowerCase().trim()]
     );
     const user = rows[0];
@@ -78,12 +78,13 @@ app.post('/api/auth/login', async (req, res) => {
     // Mettre à jour last_login
     await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
 
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const demoOnly = user.demo_only === true || user.demo_only === 't' || user.demo_only === 'true';
+    const payload = { sub: user.id, email: user.email, role: user.role, demo_only: demoOnly };
     const token   = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_TTL });
 
     res.json({
       token,
-      user: { id: user.id, email: user.email, role: user.role },
+      user: { id: user.id, email: user.email, role: user.role, demo_only: demoOnly },
       api_key: user.api_key || null,
     });
   } catch (e) {
@@ -94,7 +95,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 // GET /api/auth/session  →  { user } ou 401
 app.get('/api/auth/session', requireAuth, (req, res) => {
-  res.json({ user: { id: req.user.sub, email: req.user.email, role: req.user.role } });
+  res.json({ user: { id: req.user.sub, email: req.user.email, role: req.user.role, demo_only: req.user.demo_only || false } });
 });
 
 // POST /api/auth/logout  (côté serveur, rien à faire — le client supprime le token)
@@ -126,6 +127,8 @@ app.post('/api/auth/reset', async (req, res) => {
 
 // GET /api/data  →  { data, api_key? }
 app.get('/api/data', requireAuth, async (req, res) => {
+  // Bloquer les comptes demo_only : ils n'ont pas accès aux données de production
+  if (req.user.demo_only) return res.status(403).json({ error: 'Accès réservé au mode démo' });
   const t0 = Date.now();
   try {
     const { rows } = await pool.query('SELECT data FROM shared_data WHERE id = $1', ['main']);
@@ -148,6 +151,7 @@ app.get('/api/data', requireAuth, async (req, res) => {
 
 // POST /api/data  →  { ok, updated_at }
 app.post('/api/data', requireAuth, async (req, res) => {
+  if (req.user.demo_only) return res.status(403).json({ error: 'Accès réservé au mode démo' });
   const { data } = req.body || {};
   if (!data) return res.status(400).json({ error: 'data manquant' });
 
@@ -171,6 +175,7 @@ app.post('/api/data', requireAuth, async (req, res) => {
 
 // PATCH /api/data — Mise à jour incrémentale (delta sync)
 app.patch('/api/data', requireAuth, async (req, res) => {
+  if (req.user.demo_only) return res.status(403).json({ error: 'Accès réservé au mode démo' });
   const { meta, wines, deletedWineIds, caves, deletedCaveIds, journal } = req.body || {};
   const t0 = Date.now();
   try {
@@ -198,12 +203,30 @@ app.patch('/api/data', requireAuth, async (req, res) => {
     if (Array.isArray(deletedCaveIds) && deletedCaveIds.length)
       current.caves = current.caves.filter(c => !deletedCaveIds.includes(c.id));
 
-    if (Array.isArray(journal) && journal.length)
-      current.journal = [...current.journal, ...journal];
+    if (Array.isArray(journal) && journal.length) {
+      // Déduplication par ID : évite les entrées en double si PATCH envoyé deux fois
+      const existingIds = new Set((current.journal || []).map(j => String(j.id)));
+      const newEntries = journal.filter(j => !existingIds.has(String(j.id)));
+      current.journal = [...(current.journal || []), ...newEntries];
+    }
 
     if (meta) {
       if (meta.nCave !== undefined) current.nCave = meta.nCave;
       if (meta.nWine !== undefined) current.nWine = meta.nWine;
+      // Merge statsAnnuelles : prendre le max pour chaque mois (évite perte de données)
+      if (meta.statsAnnuelles && typeof meta.statsAnnuelles === 'object') {
+        current.statsAnnuelles = current.statsAnnuelles || {};
+        for (const [yr, months] of Object.entries(meta.statsAnnuelles)) {
+          current.statsAnnuelles[yr] = current.statsAnnuelles[yr] || {};
+          for (const [mo, data] of Object.entries(months)) {
+            const cur = current.statsAnnuelles[yr][mo] || { e: 0, s: 0 };
+            current.statsAnnuelles[yr][mo] = {
+              e: Math.max(cur.e || 0, data.e || 0),
+              s: Math.max(cur.s || 0, data.s || 0)
+            };
+          }
+        }
+      }
     }
 
     await pool.query(
