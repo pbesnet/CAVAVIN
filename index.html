@@ -6261,6 +6261,7 @@ function _getWeekendDays(){
 }
 function _checkAutoRecoWE(){
   if(!_jwtToken||isDemo)return;
+  if(db.recoWE?.loading)return; // refresh déjà en cours → pas de boucle
   const now=new Date();
   if(now.getDay()!==3||now.getHours()<12)return; // mercredi après 12h seulement
   const reco=db.recoWE;
