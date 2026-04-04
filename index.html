@@ -986,11 +986,6 @@ div[onclick], span[onclick]{
         <div id="supercave-content" style="padding:16px 14px 32px;"></div>
       </div>
 
-      <!-- PAGE: PROMO VINS -->
-      <div id="page-promo" class="page">
-        <div id="promo-content" style="padding:16px 14px 32px;"></div>
-      </div>
-
       <div id="page-transfer" class="page">
         <div id="transfer-content" style="padding:16px 14px 32px;"></div>
       </div>
@@ -2217,7 +2212,7 @@ function mostFilledCaveId(){
   },db.caves[0]).id;
 }
 
-function renderPage(){checkPromoBadge();
+function renderPage(){
   if(!activeCave){
     // Restaurer la dernière cave mémorisée, sinon prendre la plus remplie
     try{const saved=parseInt(localStorage.getItem('cavavin_lastCave'));if(saved&&getCave(saved))activeCave=saved;}catch(_){}
@@ -5076,7 +5071,7 @@ function renderInv(){
   // Tabs régions dynamiques
   const regBar=document.getElementById('inv-region-tabs');
   // Contexte rhum : filtre couleur = rhum OU cave sélectionnée = cave à rhum
-  const isRhumContext=invFilter==='rhum'||(invCaveFilter!==null&&!!getCave(invCaveFilter)?.isRhum);
+  const isRhumContext=invFilter==='rhum'||invRhumTypeFilter!==null||(invCaveFilter!==null&&!!getCave(invCaveFilter)?.isRhum);
   // Filtre type rhum (quand contexte rhum actif)
   const rhumTypeBar=document.getElementById('inv-rhum-type-tabs');
   if(rhumTypeBar){
@@ -5122,7 +5117,9 @@ function renderInv(){
     const MAT_LABEL={maturation:'🟢 Maturation',debut_apogee:'🟡 Début apogée',apogee:'🟠 Apogée',declin:'🔴 Déclin'};
     const MAT_COLOR={maturation:'#4CAF50',debut_apogee:'#FDD835',apogee:'#FF9800',declin:'#E53935'};
     // Compter les statuts sur les vins pré-filtrés (cave + couleur + région, sans maturité)
+    // Exclure le rhum qui n'est pas soumis à la maturité
     const preWines=db.wines.filter(w=>{
+      if(w.couleur==='rhum')return false;
       if(invCaveFilter!==null&&w.caveId!==invCaveFilter)return false;
       if(invFilter!=='tous'&&w.couleur!==invFilter)return false;
       if(invRegionFilter!==null&&w.region!==invRegionFilter)return false;
@@ -6234,10 +6231,10 @@ function nav(page){
   document.querySelectorAll('.sn').forEach(s=>s.classList.remove('on'));
   document.querySelector(`.sn[onclick*="'${page}'"]`)?.classList.add('on');
 
-  const titles={cave:'🍷 Ma Cave',inv:'📋 Inventaire',add:'➕ Ajouter un vin',accord:'🍽️ Accords mets & vins',journal:'📔 Journal de dégustation',chat:'🤖 Sommelier IA',supercave:'🏠 Accueil',promo:'🏷️ Promo Vins',transfer:'🔄 Transfert cave',settings:'⚙️ Configuration'};
+  const titles={cave:'🍷 Ma Cave',inv:'📋 Inventaire',add:'➕ Ajouter un vin',accord:'🍽️ Accords mets & vins',journal:'📔 Journal de dégustation',chat:'🤖 Sommelier IA',supercave:'🏠 Accueil',transfer:'🔄 Transfert cave',settings:'⚙️ Configuration'};
   document.getElementById('topbar-title').textContent=titles[page]||page;
   // Masquer le sélecteur de cave sur les pages où il n'est pas pertinent
-  const hideSel=['accord','journal','chat','supercave','promo','transfer','settings','add','inv'];
+  const hideSel=['accord','journal','chat','supercave','transfer','settings','add','inv'];
   document.getElementById('topbar-cave-sel').style.display=hideSel.includes(page)?'none':'';
 
   if(page==='cave')renderCavePage();
@@ -6246,7 +6243,6 @@ function nav(page){
   if(page==='journal')renderJournal();
   if(page==='chat'&&chatHist.length===0)initChat();
   if(page==='supercave')renderSupercave();
-  if(page==='promo'){renderPromo();markPromoSeen();}
   if(page==='transfer')renderTransfer();
   if(page==='settings')renderSettings();
   if(page==='add'){
@@ -6970,194 +6966,6 @@ function renderSupercave(){
 }
 
 // ═══════════════════════════════════════════
-// PROMO VINS — Sélection QPR exceptionnelle
-// ═══════════════════════════════════════════
-
-// Promos par défaut (fallback si pas encore de sélection IA)
-const PROMO_DEFAULT=[
-  {nom:'Château Sociando-Mallet 2016',appellation:'Haut-Médoc',region:'Bordeaux',couleur:'rouge',garde:'2025–2040',note:'92/100 Parker',prix:'~145 €',detail:'Cru bourgeois exceptionnel, millésime solaire. Tanins serrés, garde garantie 15 ans.',badge:'⭐ Coup de cœur',boutique:'Millésima'},
-  {nom:'Domaine du Vieux Télégraphe 2019',appellation:'Châteauneuf-du-Pape',region:'Rhône',couleur:'rouge',garde:'2024–2038',note:'94/100 WA',prix:'~198 €',detail:'Référence absolue de la vallée du Rhône Sud. Grenache d\'exception sur galets roulés.',badge:'🔥 Best-seller',boutique:'Vinatis'},
-  {nom:'Château Léoville Barton 2017',appellation:'Saint-Julien 2ème Grand Cru Classé',region:'Bordeaux',couleur:'rouge',garde:'2026–2045',note:'93/100 WS',prix:'~320 €',detail:'2ème Grand Cru à prix accessible. Structure imposante, potentiel de vieillissement remarquable.',badge:'🏆 Grand Cru',boutique:'1855.com'},
-  {nom:'Gevrey-Chambertin Rossignol-Trapet 2020',appellation:'Gevrey-Chambertin',region:'Bourgogne',couleur:'rouge',garde:'2025–2035',note:'91/100 RVF',prix:'~174 €',detail:'Pinot Noir de caractère, domaine biodynamique. Entrée dans le monde des grands Burgondes.',badge:'🌿 Bio',boutique:'Millésima'},
-  {nom:'Mas de Daumas Gassac Rouge 2020',appellation:'IGP Pays de l\'Hérault',region:'Languedoc',couleur:'rouge',garde:'2025–2040',note:'93/100 Decanter',prix:'~162 €',detail:'Le "Latour du Languedoc". Cabernet Sauvignon magistral sur terroir calcaire glaciaire unique.',badge:'💎 Collector',boutique:'Lavinia'},
-  {nom:'Château Pichon-Longueville Comtesse 2018',appellation:'Pauillac 2ème Grand Cru Classé',region:'Bordeaux',couleur:'rouge',garde:'2028–2050',note:'96/100 Parker',prix:'~560 €',detail:'Millésime du siècle à Pauillac. La Comtesse au sommet de sa forme, investissement sûr.',badge:'🏆 Grand Cru',boutique:'1855.com'},
-  {nom:'Chapoutier Hermitage Chante-Alouette 2019',appellation:'Hermitage Blanc',region:'Vallée du Rhône',couleur:'blanc',garde:'2026–2040',note:'94/100 WA',prix:'~210 €',detail:'Marsanne de légende sur granit. L\'un des blancs de garde les plus exceptionnels de France.',badge:'⭐ Coup de cœur',boutique:'Vinatis'},
-  {nom:'Clos des Papes 2018',appellation:'Châteauneuf-du-Pape',region:'Rhône',couleur:'rouge',garde:'2025–2045',note:'97/100 Parker',prix:'~385 €',detail:'Note parfaite Parker régulière, millésime exceptionnel. QPR imbattable au niveau.',badge:'💎 Collector',boutique:'Nicolas'},
-  {nom:'Domaine Weinbach Riesling Clos des Capucins 2019',appellation:'Alsace Riesling',region:'Alsace',couleur:'blanc',garde:'2025–2035',note:'93/100 RVF',prix:'~138 €',detail:'Incontournable d\'Alsace, minéralité électrisante, biodynamique certifiée. Parfait avec poissons fins.',badge:'🌿 Bio',boutique:'Lavinia'},
-  {nom:'Château Montrose 2015',appellation:'Saint-Estèphe 2ème Grand Cru Classé',region:'Bordeaux',couleur:'rouge',garde:'2025–2050',note:'98/100 Parker',prix:'~490 €',detail:'Millésime légendaire, Montrose au sommet. Moins cher que Latour, qualité comparable. Achat patrimonial.',badge:'🔥 Best-seller',boutique:'Millésima'},
-];
-
-function getPromoCache(){
-  // Priorité : db.promoCache (partagé Supabase) > fallback localStorage legacy
-  if(db.promoCache&&db.promoCache.wines)return db.promoCache;
-  try{const c=localStorage.getItem('promoWinesCache');return c?JSON.parse(c):null;}catch(_){return null;}
-}
-
-function renderPromo(){
-  const el=document.getElementById('promo-content');
-  if(!el)return;
-
-  // Catalogue des boutiques connues : couleur, URL de base, URL de recherche
-  const BOUTIQUES={
-    'Millésima':  {color:'#8B1A2E',base:'https://www.millesima.fr',   search:q=>`https://www.millesima.fr/recherche/?q=${encodeURIComponent(q)}`},
-    'Vinatis':    {color:'#1A3A8B',base:'https://www.vinatis.com',     search:q=>`https://www.vinatis.com/recherche?search=${encodeURIComponent(q)}`},
-    '1855.com':   {color:'#2A6B2A',base:'https://www.1855.com',        search:q=>`https://www.1855.com/recherche?q=${encodeURIComponent(q)}`},
-    'Nicolas':    {color:'#C47A00',base:'https://www.nicolas.com',     search:q=>`https://www.nicolas.com/search?query=${encodeURIComponent(q)}`},
-    'Lavinia':    {color:'#5A1A5A',base:'https://www.lavinia.fr',      search:q=>`https://www.lavinia.fr/recherche?q=${encodeURIComponent(q)}`},
-    'Inter Caves':{color:'#1A5A5A',base:'https://www.intercaves.fr',   search:q=>`https://www.intercaves.fr/catalogsearch/result/?q=${encodeURIComponent(q)}`},
-    'Idealwine':  {color:'#4A2A6A',base:'https://www.idealwine.com',   search:q=>`https://www.idealwine.com/n/acheter-vin.do?q=${encodeURIComponent(q)}`},
-    'Château direct':{color:'#5A3A1A',base:'',                         search:q=>`https://www.google.fr/search?q=${encodeURIComponent(q+' achat direct domaine')}&tbm=shop`},
-  };
-  // Génère l'URL : toujours Google Shopping avec nom du vin + boutique dans la requête
-  const promoUrl=(p)=>{
-    const q=[p.nom,p.boutique].filter(Boolean).join(' ');
-    return`https://www.google.fr/search?q=${encodeURIComponent(q)}&tbm=shop`;
-  };
-
-  const cache=getPromoCache();
-  const promos=(cache?cache.wines:PROMO_DEFAULT).map(p=>({...p,url:promoUrl(p)}));
-  const cacheDate=cache?cache.date:null;
-
-  const sites=[
-    {name:'Millésima',color:'#8B1A2E',url:'https://www.millesima.fr'},
-    {name:'Vinatis',color:'#1A3A8B',url:'https://www.vinatis.com'},
-    {name:'1855.com',color:'#2A6B2A',url:'https://www.1855.com'},
-    {name:'Nicolas',color:'#C47A00',url:'https://www.nicolas.com'},
-    {name:'Lavinia',color:'#5A1A5A',url:'https://www.lavinia.fr'},
-  ];
-  const colBadge={rouge:'#8B1A2E',blanc:'#C89A10',rose:'#CC0050',champagne:'#B88A18'};
-  const badgeStyle={
-    '⭐ Coup de cœur':'background:#FFF3CD;color:#856404;',
-    '🔥 Best-seller':'background:#FFE5E5;color:#8B1A2E;',
-    '🏆 Grand Cru':'background:#F0E8FF;color:#5A2D8A;',
-    '🌿 Bio':'background:#E6F4E6;color:#2A7A2A;',
-    '💎 Collector':'background:#E8F4FF;color:#1A5A8B;',
-  };
-
-  el.innerHTML=`
-  <div style="margin-bottom:18px;">
-    <div style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:700;color:var(--ink);line-height:1.1;">🏷️ Promo Vins</div>
-    <div style="font-size:12px;color:var(--ink3);margin-top:4px;">Sélection QPR exceptionnelle · Caisse de 6 · Vins de garde</div>
-
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;gap:10px;flex-wrap:wrap;">
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        ${sites.map(s=>`<a href="${s.url}" target="_blank" style="background:${s.color};color:#fff;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:600;text-decoration:none;">${s.name}</a>`).join('')}
-      </div>
-      <button id="promo-refresh-btn" onclick="refreshPromos()" style="display:flex;align-items:center;gap:6px;background:var(--white);border:1.5px solid var(--border);border-radius:20px;padding:7px 14px;font-size:12px;font-weight:600;color:var(--ink2);cursor:pointer;flex-shrink:0;">
-        <span id="promo-refresh-icon">✨</span> Actualiser IA
-      </button>
-    </div>
-    ${cacheDate?`<div style="font-size:11px;color:var(--ink3);margin-top:6px;">Sélection IA du ${cacheDate}</div>`:'<div style="font-size:11px;color:var(--ink3);margin-top:6px;">Sélection par défaut · Clique sur Actualiser IA pour générer une sélection fraîche</div>'}
-  </div>
-
-  <div style="display:flex;flex-direction:column;gap:14px;">
-  ${promos.map(p=>`
-    <div style="background:var(--white);border-radius:16px;box-shadow:var(--shadow-s);overflow:hidden;">
-      <div style="background:linear-gradient(135deg,${colBadge[p.couleur]||'#888'}22,${colBadge[p.couleur]||'#888'}08);padding:14px 14px 10px;">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px;">
-          <div style="flex:1;">
-            <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:700;color:var(--ink);line-height:1.2;">${p.nom}</div>
-            <div style="font-size:11px;color:var(--ink2);margin-top:2px;">${p.appellation} · ${p.region}</div>
-          </div>
-          <div style="text-align:right;flex-shrink:0;">
-            <div style="font-size:17px;font-weight:800;color:${colBadge[p.couleur]||'#888'};">${p.prix}</div>
-            <div style="font-size:10px;color:var(--ink3);">caisse 6 bout.</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
-          <span style="font-size:10px;font-weight:600;border-radius:20px;padding:2px 8px;${badgeStyle[p.badge]||''}">${p.badge}</span>
-          <span style="font-size:10px;background:var(--paper2);border-radius:20px;padding:2px 8px;color:var(--ink2);">🕐 Garde ${p.garde}</span>
-          <span style="font-size:10px;background:var(--paper2);border-radius:20px;padding:2px 8px;color:var(--ink2);">${p.note}</span>
-        </div>
-        <div style="font-size:12px;color:var(--ink2);line-height:1.45;">${p.detail}</div>
-      </div>
-      <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;">
-        ${p.boutique?`<span style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;background:${(BOUTIQUES[p.boutique]?.color||'#555')+'22'};color:${BOUTIQUES[p.boutique]?.color||'#555'};flex-shrink:0;">🏪 ${p.boutique}</span>`:'<span></span>'}
-        <button onclick="window.open('${p.url}','_blank','noopener')" style="background:linear-gradient(135deg,${p.boutique&&BOUTIQUES[p.boutique]?BOUTIQUES[p.boutique].color:'#8B1A2E'},${p.boutique&&BOUTIQUES[p.boutique]?BOUTIQUES[p.boutique].color+'CC':'#C23052'});color:#fff;border-radius:20px;padding:7px 16px;font-size:12px;font-weight:600;border:none;cursor:pointer;display:flex;align-items:center;gap:5px;font-family:'Outfit',sans-serif;white-space:nowrap;">${p.boutique?`🛒 Voir chez ${p.boutique} →`:'🔍 Google Shopping →'}</button>
-      </div>
-    </div>
-  `).join('')}
-  </div>
-
-  <div style="margin-top:18px;padding:12px 14px;background:var(--paper2);border-radius:12px;font-size:11px;color:var(--ink3);line-height:1.5;">
-    ℹ️ Les prix sont indicatifs. "Voir sur Google Shopping" affiche les offres en temps réel chez tous les marchands.
-  </div>
-  `;
-}
-
-async function refreshPromos(){
-  const btn=document.getElementById('promo-refresh-btn');
-  const icon=document.getElementById('promo-refresh-icon');
-  if(btn){btn.disabled=true;btn.style.opacity='0.6';}
-  if(icon)icon.textContent='⏳';
-  showToast('✨ Analyse IA en cours…');
-
-  const sys=`Tu es un expert caviste et chasseur de bonnes affaires en vins fins. Ta mission : trouver des vins d'exception vendus à prix cassé sur les grandes boutiques françaises en ligne. Tu réponds UNIQUEMENT avec un JSON valide, sans aucun texte avant ni après le JSON.`;
-  const prompt=`Identifie 10 vins de cave exceptionnels disponibles RIGHT NOW à prix très avantageux sur les grandes boutiques françaises en ligne (Millésima, Vinatis, 1855.com, Nicolas, Lavinia, Inter Caves, Idealwine).
-
-RÈGLE ABSOLUE : chaque vin DOIT être actuellement en vente sur la boutique indiquée, avec un prix affiché vérifiable. Ne propose JAMAIS un vin introuvable ou en rupture de stock chronique.
-
-Critères de sélection (TOUS obligatoires) :
-- Note critique ≥ 91/100 (Parker / Wine Advocate / Wine Spectator / RVF / Decanter) — indiquer la source
-- Prix bouteille entre 15 € et 120 € (rapport qualité-prix exceptionnel pour ce niveau de qualité)
-- Le vin est sous-coté : son prix actuel est inférieur d'au moins 20 % à sa valeur marchande habituelle
-- Potentiel de garde : au minimum 5 ans restants à partir de 2026
-- Le vin est RÉELLEMENT disponible à l'achat sur le site de la boutique indiquée (pas en pré-commande ni en liste d'attente)
-
-Diversité obligatoire :
-- Au moins 5 régions différentes parmi : Bordeaux, Bourgogne, Rhône, Loire, Alsace, Languedoc, Provence, Champagne, Sud-Ouest, Corse
-- Maximum 2 vins par région, 1 seul par domaine/château
-- Au moins 2 vins blancs de garde
-- Au moins 1 vin d'une appellation confidentielle / découverte (rapport qualité-prix maximal)
-
-Pour chaque vin, le champ "detail" doit contenir : pourquoi c'est une affaire exceptionnelle + prix de référence habituel si connu + argument d'achat immédiat (stock limité, millésime rare, etc.).
-
-Réponds avec ce JSON exact — un tableau de 10 objets, rien d'autre :
-[
-  {
-    "nom": "Château X 2018",
-    "appellation": "Appellation officielle",
-    "region": "Région",
-    "couleur": "rouge",
-    "garde": "2026-2038",
-    "note": "93/100 Parker",
-    "prix": "~38 €",
-    "detail": "Habituellement à 55 €, ce millésime solaire est soldé suite au changement de gamme du château. Stock limité. Tanins soyeux, belle longueur.",
-    "badge": "🔥 Best-seller",
-    "boutique": "Millésima"
-  }
-]
-Valeurs autorisées pour couleur : rouge, blanc, rose, champagne
-Valeurs autorisées pour badge : ⭐ Coup de cœur, 🔥 Best-seller, 🏆 Grand Cru, 🌿 Bio, 💎 Collector
-Valeurs autorisées pour boutique : Millésima, Vinatis, 1855.com, Nicolas, Lavinia, Inter Caves, Idealwine, Château direct
-Réponds UNIQUEMENT avec le JSON, sans introduction ni conclusion.`;
-
-  try{
-    const raw=await apiCallWithSys(sys,[{role:'user',content:prompt}],3000);
-    // Extraire le JSON même si l'IA a ajouté du texte autour
-    const match=raw.match(/\[[\s\S]*\]/);
-    if(!match)throw new Error('Réponse IA non parseable');
-    const wines=JSON.parse(match[0]);
-    if(!Array.isArray(wines)||wines.length<5)throw new Error('Sélection insuffisante');
-    const today=new Date().toISOString().split('T')[0];
-    // Stocker dans db → sync Supabase automatique pour tous les utilisateurs
-    db.promoCache={wines,date:today};
-    dbSave();
-    localStorage.removeItem('promoWinesCache'); // nettoyer l'ancien cache local
-    localStorage.removeItem('promoLastSeen');
-    checkPromoBadge();
-    showToast('✅ Sélection IA mise à jour !');
-    renderPromo();
-    markPromoSeen();
-  }catch(e){
-    console.error('refreshPromos:',e);
-    showToast('❌ Erreur IA — réessaie dans un moment');
-    if(btn){btn.disabled=false;btn.style.opacity='1';}
-    if(icon)icon.textContent='✨';
-  }
-}
-
-// ═══════════════════════════════════════════
 // TRANSFERT CAVE
 // ═══════════════════════════════════════════
 let transferTab='recommended';
@@ -7834,21 +7642,6 @@ function executeTransfer(wineId,targetCaveId,targetPos,recoIdx){
   if(currentPage==='cave')renderCavePage();
 }
 
-// ── Badge "Nouveautés" sur Promo Vins ────────────────────────────
-function checkPromoBadge(){
-  const lastSeen=localStorage.getItem('promoLastSeen')||'';
-  const cache=getPromoCache();
-  const ref=cache?cache.date:'2026-03-27';
-  const badge=document.getElementById('promo-badge');
-  if(!badge)return;
-  badge.style.display=lastSeen<ref?'inline-block':'none';
-}
-
-function markPromoSeen(){
-  localStorage.setItem('promoLastSeen',new Date().toISOString().split('T')[0]);
-  const badge=document.getElementById('promo-badge');
-  if(badge)badge.style.display='none';
-}
 </script>
 </body>
 </html>
