@@ -3531,7 +3531,7 @@ function saveWine(){
 
   // ── Auto-fetch score presse si non renseigné ────────────────────────
   const firstNewWine=db.wines.find(x=>x.id===newWineIds[0]);
-  if(firstNewWine&&!firstNewWine.scorePresse&&apiKey){
+  if(firstNewWine&&!firstNewWine.scorePresse&&(_jwtToken||apiKey)){
     (async()=>{
       try{
         let ctx;
@@ -4989,6 +4989,48 @@ async function runMaturiteUpdate(){
 }
 function stopMaturiteUpdate(){_maturiteAbort=true;}
 
+// ── Recalcul scores presse manquants (batch IA) ──────────────────────
+let _scoreAbort=false;
+async function runScoreUpdate(){
+  if(!_jwtToken&&!apiKey){showToast('⚠️ Connexion requise');return;}
+  const btn=document.getElementById('btn-score-update');
+  const btnStop=document.getElementById('btn-score-stop');
+  const winesSansScore=db.wines.filter(w=>!w.scorePresse||w.scorePresse===80);
+  if(!winesSansScore.length){showToast('ℹ️ Tous les vins ont déjà un score');return;}
+  if(btn){btn.disabled=true;btn.textContent=`⏳ 0 / ${winesSansScore.length}…`;}
+  if(btnStop)btnStop.style.display='inline-block';
+  _scoreAbort=false;
+  let updated=0;
+  for(let i=0;i<winesSansScore.length;i++){
+    if(_scoreAbort)break;
+    const w=winesSansScore[i];
+    try{
+      let ctx;
+      if(w.couleur==='rhum'){
+        ctx=`Tu es un expert en rhums et spiritueux. Pour ce rhum : "${w.nom||''}"${w.distillerie?', distillerie '+w.distillerie:''}${w.pays?', '+w.pays:''}${w.rhumType?', '+w.rhumType:''}. Donne le score moyen sur 100 selon les grandes critiques (Rum XP, BTI, Spirits Business, The Rum Judge…). Réponds UNIQUEMENT avec un entier entre 80 et 100. Si tu n'as pas d'info fiable sur ce rhum précis, réponds 80.`;
+      } else {
+        ctx=`Tu es un critique de vin expert. Pour ce vin : "${w.nom||''}"${w.millesime?' '+w.millesime:''}${w.producteur?', domaine '+w.producteur:''}${w.appellation?', '+w.appellation:''}${w.region?', '+w.region:''}. Donne le score moyen sur 100 selon les grandes critiques (Parker, Wine Spectator, Decanter, RVF...). Réponds UNIQUEMENT avec un entier entre 80 et 100. Si tu n'as pas d'info fiable sur ce vin précis, réponds 80.`;
+      }
+      const r=await apiCall([{role:'user',content:ctx}],10);
+      const score=parseInt(r.trim());
+      if(score>=80&&score<=100){w.scorePresse=score;updated++;}
+    }catch(_){}
+    if((i+1)%10===0&&updated)dbSave();
+    if(btn)btn.textContent=`⏳ ${i+1} / ${winesSansScore.length} — ${updated} notés…`;
+    if(i<winesSansScore.length-1)await new Promise(r=>setTimeout(r,150));
+  }
+  if(updated)dbSave();
+  if(btnStop)btnStop.style.display='none';
+  const wasStopped=_scoreAbort;
+  if(updated&&!isDemo&&currentUser&&_jwtToken){clearTimeout(syncTimer);try{await _doCloudSync();}catch(_){}}
+  if(btn){btn.disabled=false;btn.textContent='⭐ Recalculer les scores (tous les vins)';}
+  if(wasStopped){showToast(updated?`⏹️ Arrêté — ${updated} score${updated>1?'s':''} mis à jour`:'⏹️ Arrêté');}
+  else{showToast(updated?`✅ ${updated} score${updated>1?'s':''} mis à jour`:'ℹ️ Aucun score mis à jour');}
+  if(currentPage==='cave')renderCavePage();
+  if(currentPage==='settings')renderSettings();
+}
+function stopScoreUpdate(){_scoreAbort=true;}
+
 // ── Initialisation heuristique des maturités manquantes ──────────────────────
 // Pour toutes les bouteilles sans apogeeDebut/apogeeFin (ni IA ni saisie manuelle),
 // calcule une estimation basée sur le millésime, la couleur et la région.
@@ -5694,6 +5736,14 @@ function renderSettings(){
         <div style="display:flex;gap:6px;align-items:center;">
           <button id="btn-maturite-update" class="btn btn-secondary" onclick="runMaturiteUpdate()" style="flex:1;font-size:13px;">🤖 Recalculer apogée via IA (tous les vins)</button>
           <button id="btn-maturite-stop" class="btn btn-danger" onclick="stopMaturiteUpdate()" style="display:none;font-size:13px;padding:6px 12px;white-space:nowrap;">⏹ Stop</button>
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <div style="font-size:12px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">⭐ Scores presse</div>
+        <div style="font-size:12px;color:var(--ink3);margin-bottom:8px;line-height:1.5;">Recalculer les scores presse via IA pour toutes les bouteilles sans score ou avec le score par défaut (80).</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button id="btn-score-update" class="btn btn-secondary" onclick="runScoreUpdate()" style="flex:1;font-size:13px;">🤖 Recalculer scores presse (IA)</button>
+          <button id="btn-score-stop" class="btn btn-danger" onclick="stopScoreUpdate()" style="display:none;font-size:13px;padding:6px 12px;white-space:nowrap;">⏹ Stop</button>
         </div>
       </div>
     </div>`;
