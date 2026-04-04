@@ -4033,8 +4033,17 @@ async function sendChat(){
     try{
       const ans=await apiCall([{role:'user',content:[
         {type:'image',source:{type:'base64',media_type:img.split(';')[0].split(':')[1],data:img.split(',')[1]}},
-        {type:'text',text:`${cavesCtx}\n\nAnalyse cette bouteille. Si elle est dans mes caves, indique la position exacte. Sinon identifie-la : région, millésime, accords. 4-5 lignes, amical.`}
-      ]}],700);
+        {type:'text',text:`${cavesCtx}\n\nAnalyse cette bouteille en détail. Si elle est dans mes caves, indique la position exacte avec [[id]].
+Donne une fiche complète :
+1. IDENTIFICATION : nom, producteur/domaine, appellation, région, millésime, cépage(s)
+2. TERROIR : décris brièvement le terroir (sol, climat, altitude) qui donne son caractère à ce vin
+3. PRODUCTEUR : histoire courte du domaine/château, style de vinification, réputation
+4. NOTE : score estimé /100 (Parker, Wine Spectator, Decanter, RVF) et justification en 1 ligne
+5. MATURITÉ : fenêtre d'apogée (ex: 2025-2035), stade actuel (maturation/début apogée/apogée/déclin)
+6. BONNES ANNÉES : cite les 3-5 meilleurs millésimes récents de ce domaine ou appellation
+7. ACCORDS : 2-3 suggestions mets & vins
+Ton amical, tu tutoies. Format aéré avec des emojis.`}
+      ]}],1200);
       ty.remove();
       addAI(ans.trim());
     }catch(e){ty.remove();addAI('Désolé, erreur lors de l\'analyse.');}
@@ -4043,9 +4052,18 @@ async function sendChat(){
   if(!txt)return;
   addUser(txt);
   const ty=addTyp();
-  const sys=`Tu es un sommelier expert et assistant cave personnel. Tu tutoies. Réponses courtes et pratiques.
+  const sys=`Tu es un sommelier expert et assistant cave personnel. Tu tutoies. Réponses pratiques et riches en détails œnologiques.
 Caves (chaque vin inclut : emplacement, producteur, appellation, prix, score critique /100, date d'achat, maturité actuelle, et dernière note de dégustation si disponible) :
 ${cavesCtx}
+
+QUAND ON TE DEMANDE D'ANALYSER UN VIN SPÉCIFIQUE (par nom, photo, ou en disant "parle-moi de ce vin"), donne une fiche détaillée :
+- TERROIR : sol, climat, spécificités du terroir qui donnent son caractère au vin
+- PRODUCTEUR : histoire courte du domaine, style de vinification, réputation
+- NOTE : score estimé /100 (Parker, Wine Spectator, Decanter, RVF…) avec justification
+- MATURITÉ & APOGÉE : fenêtre d'apogée précise, stade actuel, conseils de garde
+- BONNES ANNÉES : cite les 3-5 meilleurs millésimes récents de ce domaine ou appellation
+- ACCORDS : 2-3 suggestions mets & vins adaptées à la maturité actuelle
+
 ACCORDS METS-VINS : Pour toute recommandation d'accord, prends en compte TOUS les champs disponibles dans cet ordre de priorité :
 1. MATURITÉ — privilégie les vins à l'apogée ou légèrement en déclin. Écarte les vins trop jeunes sauf si aucune alternative.
 2. APPELLATION & PRODUCTEUR — utilise la précision de l'appellation et le style du producteur/domaine pour affiner l'accord (ex: Chablis 1er Cru vs Bourgogne générique, Guigal vs Chapoutier sur Côtes-du-Rhône).
@@ -4054,10 +4072,10 @@ ACCORDS METS-VINS : Pour toute recommandation d'accord, prends en compte TOUS le
 5. EMPLACEMENT — mentionne la position exacte dans la cave (ex: "Cave Salon, rangée A3") pour que l'utilisateur puisse le trouver facilement.
 6. PRIX — signale si le vin choisi représente un excellent rapport qualité-accord vs prix.
 IMPORTANT : quand tu mentionnes un vin de la cave, ajoute [[id]] juste après son nom (ex: "Château Margaux 2018 [[42]] serait parfait"). N'ajoute [[id]] que pour les vins présents dans les caves ci-dessus.
-Français, bref.`;
+Français, format aéré avec emojis.`;
   try{
     const msgs=[...chatHist.slice(-8),{role:'user',content:txt}];
-    const ans=await apiCallWithSys(sys,msgs,600);
+    const ans=await apiCallWithSys(sys,msgs,1200);
     ty.remove();
     addAI(ans.replace(/HIGHLIGHT:\d+/,'').trim());
   }catch(e){
@@ -4802,21 +4820,34 @@ let invMaturiteFilter=null;// null = toutes les maturités
 let invRhumTypeFilter=null;// null = tous les types de rhum
 let _invNavFilters=false;  // true quand on arrive sur inv depuis une autre page avec filtres pré-réglés
 
+// ── Persistance des filtres inventaire via sessionStorage ──
+function _saveInvFilters(){
+  try{sessionStorage.setItem('cavavin_inv_filters',JSON.stringify({f:invFilter,c:invCaveFilter,r:invRegionFilter,m:invMaturiteFilter,rt:invRhumTypeFilter}));}catch(_){}
+}
+function _restoreInvFilters(){
+  try{
+    const s=sessionStorage.getItem('cavavin_inv_filters');
+    if(s){const o=JSON.parse(s);invFilter=o.f||'tous';invCaveFilter=o.c??null;invRegionFilter=o.r??null;invMaturiteFilter=o.m??null;invRhumTypeFilter=o.rt??null;}
+  }catch(_){}
+}
+// Restaurer à l'initialisation
+_restoreInvFilters();
+
 function setIF(f,el){
   invFilter=f;invRegionFilter=null;invMaturiteFilter=null;invRhumTypeFilter=null;
   document.querySelectorAll('#inv-ftabs button').forEach(t=>{t.classList.remove('btn-primary','on');t.classList.add('btn-secondary');});
   el.classList.remove('btn-secondary');el.classList.add('btn-primary','on');
-  renderInv();
+  _saveInvFilters();renderInv();
 }
 function setICave(caveId){
   invCaveFilter=caveId;invRegionFilter=null;invMaturiteFilter=null;invRhumTypeFilter=null;
-  renderInv();
+  _saveInvFilters();renderInv();
 }
-function setInvRegion(r){invRegionFilter=(r===null||r===invRegionFilter)?null:r;renderInv();}
-function clearInvRegion(){invRegionFilter=null;renderInv();}
-function setInvMaturite(m){invMaturiteFilter=(m===null||m===invMaturiteFilter)?null:m;renderInv();}
-function setInvRhumType(t){invRhumTypeFilter=(t===null||t===invRhumTypeFilter)?null:t;renderInv();}
-function setInvFilter(f){invFilter=f;invRegionFilter=null;invMaturiteFilter=null;invRhumTypeFilter=null;document.querySelectorAll('#inv-ftabs button').forEach(b=>{const isTarget=b.dataset.f===f||b.onclick?.toString().includes("'"+f+"'");b.classList.toggle('btn-primary',isTarget);b.classList.toggle('btn-secondary',!isTarget);});}
+function setInvRegion(r){invRegionFilter=(r===null||r===invRegionFilter)?null:r;_saveInvFilters();renderInv();}
+function clearInvRegion(){invRegionFilter=null;_saveInvFilters();renderInv();}
+function setInvMaturite(m){invMaturiteFilter=(m===null||m===invMaturiteFilter)?null:m;_saveInvFilters();renderInv();}
+function setInvRhumType(t){invRhumTypeFilter=(t===null||t===invRhumTypeFilter)?null:t;_saveInvFilters();renderInv();}
+function setInvFilter(f){invFilter=f;invRegionFilter=null;invMaturiteFilter=null;invRhumTypeFilter=null;_saveInvFilters();document.querySelectorAll('#inv-ftabs button').forEach(b=>{const isTarget=b.dataset.f===f||b.onclick?.toString().includes("'"+f+"'");b.classList.toggle('btn-primary',isTarget);b.classList.toggle('btn-secondary',!isTarget);});}
 
 
 
@@ -5263,7 +5294,6 @@ function showDetail(id,fromChat=false){
         </div>
       </div>
     </div>
-    ${buildMiniCaveSchema(w,0)}
     ${w.couleur==='rhum'?`
       ${w.distillerie?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🏭 Distillerie</span><span style="font-size:13px;font-weight:500;">${w.distillerie}</span></div>`:''}
       ${w.pays?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🌍 Pays</span><span style="font-size:13px;font-weight:500;">${w.pays}</span></div>`:''}
@@ -5301,7 +5331,8 @@ function showDetail(id,fromChat=false){
         ${w.maturiteHeuristique?`<div style="font-size:10px;color:var(--ink4);text-align:center;">estimation par millésime</div>`:''}
       </div>`:''}`}
     ${w.dateAchat||w.lieuAchat?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🛒 Achat</span><span style="font-size:13px;font-weight:500;">${[w.dateAchat?new Date(w.dateAchat).toLocaleDateString('fr-FR'):null,w.lieuAchat].filter(Boolean).join(' · ')}</span></div>`:''}
-    ${w.notes?`<div style="margin-top:10px;padding:10px;background:var(--paper2);border-radius:10px;font-size:12px;color:var(--ink2);font-style:italic;">"${w.notes}"</div>`:''}`;
+    ${w.notes?`<div style="margin-top:10px;padding:10px;background:var(--paper2);border-radius:10px;font-size:12px;color:var(--ink2);font-style:italic;">"${w.notes}"</div>`:''}
+    ${buildMiniCaveSchema(w,0)}`;
   // Boutons dans le footer fixe (toujours visibles, non affectés par la longueur du contenu)
   const isRhumDetail=w.couleur==='rhum';
   document.getElementById('detail-footer').innerHTML=`
@@ -5869,7 +5900,7 @@ function renderCavePage(){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;">
       ${isRhumCavePage
         ?colorCards.map(({key,label,n,grad})=>`
-        <div class="color-card" style="background:${grad};" onclick="invCaveFilter=activeCave;setInvFilter('rhum');setInvRhumType('${key}');_invNavFilters=true;nav('inv')">
+        <div class="color-card" style="background:${grad};" onclick="invCaveFilter=activeCave;setInvFilter('rhum');setInvRhumType('${key}');_invNavFilters=true;_saveInvFilters();nav('inv')">
           <div style="display:flex;align-items:center;gap:7px;">
             <div style="font-size:15px;line-height:1;">🥃</div>
             <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:700;line-height:1;color:#fff;">${n}</div>
@@ -5877,7 +5908,7 @@ function renderCavePage(){
           </div>
         </div>`).join('')
         :colorCards.map(({key,label,n,emoji})=>`
-        <div class="color-card" style="background:${colGrad[key]};" onclick="invCaveFilter=activeCave;invFilter='${key}';invRegionFilter=null;invMaturiteFilter=null;_invNavFilters=true;nav('inv')">
+        <div class="color-card" style="background:${colGrad[key]};" onclick="invCaveFilter=activeCave;invFilter='${key}';invRegionFilter=null;invMaturiteFilter=null;invRhumTypeFilter=null;_invNavFilters=true;_saveInvFilters();nav('inv')">
           <div style="display:flex;align-items:center;gap:7px;">
             <div style="font-size:15px;line-height:1;">${emoji}</div>
             <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:700;line-height:1;color:#fff;">${n}</div>
@@ -5891,7 +5922,7 @@ function renderCavePage(){
     <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.9px;margin-bottom:7px;">Par région</div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:14px;">
       ${regions.map(([r,n])=>`
-      <div style="background:var(--white);border-radius:10px;padding:7px 5px 6px;text-align:center;box-shadow:var(--shadow-s);cursor:pointer;" onclick="invCaveFilter=activeCave;invFilter='tous';invRegionFilter=this.dataset.r;invMaturiteFilter=null;_invNavFilters=true;nav('inv')" data-r="${r.replace(/"/g,'&quot;')}" >
+      <div style="background:var(--white);border-radius:10px;padding:7px 5px 6px;text-align:center;box-shadow:var(--shadow-s);cursor:pointer;" onclick="invCaveFilter=activeCave;invFilter='tous';invRegionFilter=this.dataset.r;invMaturiteFilter=null;invRhumTypeFilter=null;_invNavFilters=true;_saveInvFilters();nav('inv')" data-r="${r.replace(/"/g,'&quot;')}" >
         <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:700;color:var(--rouge);line-height:1;">${n}</div>
         <div style="font-size:8px;color:var(--ink2);margin-top:3px;line-height:1.2;word-break:break-word;font-weight:500;">${r.length>8?r.slice(0,7)+'…':r}</div>
       </div>`).join('')}
@@ -6610,7 +6641,7 @@ function renderSupercave(){
         const cfg=MATURITE_CFG[st];
         const bucket=wines.filter(w=>maturiteStatus(w)===st);
         const n=bucket.length;
-        return`<div onclick="invMaturiteFilter='${st}';invFilter='tous';invCaveFilter=null;nav('inv');" style="background:var(--paper2);border-radius:12px;padding:11px 12px;border-left:3px solid ${cfg.color};cursor:pointer;transition:background .15s;"
+        return`<div onclick="invMaturiteFilter='${st}';invFilter='tous';invCaveFilter=null;invRegionFilter=null;invRhumTypeFilter=null;_invNavFilters=true;_saveInvFilters();nav('inv');" style="background:var(--paper2);border-radius:12px;padding:11px 12px;border-left:3px solid ${cfg.color};cursor:pointer;transition:background .15s;"
           onmouseover="this.style.background='var(--paper3)'" onmouseout="this.style.background='var(--paper2)'">
           <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
             <span style="width:7px;height:7px;border-radius:50%;background:${cfg.color};display:inline-block;flex-shrink:0;"></span>
@@ -6793,11 +6824,11 @@ function renderSupercave(){
     if(!urgents.length)return'';
     const cfgA=MATURITE_CFG['apogee'];
     return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;">
-      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;cursor:pointer;" onclick="invMaturiteFilter='apogee';invFilter='tous';invCaveFilter=null;nav('inv');">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;cursor:pointer;" onclick="invMaturiteFilter='apogee';invFilter='tous';invCaveFilter=null;invRegionFilter=null;invRhumTypeFilter=null;_invNavFilters=true;_saveInvFilters();nav('inv');">
         <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;">⏳ Apogée — déclin imminent</div>
         <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:${cfgA.color}22;color:${cfgA.color};">à boire vite</div>
       </div>
-      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">Passent en déclin dans moins de 6 mois · <span style="color:${cfgA.color};cursor:pointer;" onclick="event.stopPropagation();invMaturiteFilter='apogee';invFilter='tous';invCaveFilter=null;nav('inv');">Voir dans l'inventaire →</span></div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">Passent en déclin dans moins de 6 mois · <span style="color:${cfgA.color};cursor:pointer;" onclick="event.stopPropagation();invMaturiteFilter='apogee';invFilter='tous';invCaveFilter=null;invRegionFilter=null;invRhumTypeFilter=null;_invNavFilters=true;_saveInvFilters();nav('inv');">Voir dans l'inventaire →</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
         ${urgents.map(w=>{
           const finDansNMois=w.apogeeFin===nowY?`cette année`:w.apogeeFin===nowY+1?`en ${w.apogeeFin}`:`${w.apogeeFin}`;
@@ -6822,11 +6853,11 @@ function renderSupercave(){
     const cfg=MATURITE_CFG['declin'];
     const totalDec=wines.filter(w=>maturiteStatus(w)==='declin').length;
     return`<div style="background:var(--white);border-radius:14px;padding:14px;box-shadow:var(--shadow-s);margin-bottom:12px;">
-      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;cursor:pointer;" onclick="invMaturiteFilter='declin';invFilter='tous';invCaveFilter=null;nav('inv');">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;cursor:pointer;" onclick="invMaturiteFilter='declin';invFilter='tous';invCaveFilter=null;invRegionFilter=null;invRhumTypeFilter=null;_invNavFilters=true;_saveInvFilters();nav('inv');">
         <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;">🍂 Vins en déclin</div>
         <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:${cfg.color}22;color:${cfg.color};">${totalDec} au total</div>
       </div>
-      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;"><span style="color:${cfg.color};cursor:pointer;" onclick="event.stopPropagation();invMaturiteFilter='declin';invFilter='tous';invCaveFilter=null;nav('inv');">Voir tous dans l'inventaire →</span></div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;"><span style="color:${cfg.color};cursor:pointer;" onclick="event.stopPropagation();invMaturiteFilter='declin';invFilter='tous';invCaveFilter=null;invRegionFilter=null;invRhumTypeFilter=null;_invNavFilters=true;_saveInvFilters();nav('inv');">Voir tous dans l'inventaire →</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
         ${declin.map(w=>{
           const ans=nowY-(w.apogeeFin||nowY);
