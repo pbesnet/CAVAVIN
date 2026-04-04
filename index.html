@@ -5881,11 +5881,15 @@ function renderCavePage(){
   <div style="padding:14px 14px 48px;">
 
     <!-- ① HERO CAVE -->
+    ${(()=>{const scored=wines.filter(w=>w.scorePresse&&w.scorePresse!==80);const avgScore=scored.length?Math.round(scored.reduce((s,w)=>s+w.scorePresse,0)/scored.length*10)/10:null;return`
     <div style="background:linear-gradient(145deg,#1A0A04 0%,#3A1A08 60%,#5A2A10 100%);border-radius:16px;padding:11px 14px 10px;margin-bottom:10px;position:relative;overflow:hidden;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
-        <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:600;color:#fff;line-height:1.2;">${cave.name}</div>
+        <div style="display:flex;align-items:baseline;gap:8px;">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:600;color:#fff;line-height:1.2;">${cave.name}</div>
+          ${avgScore?`<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:rgba(255,215,0,.18);color:#FFD700;">⭐ ${avgScore}/100</span>`:''}
+        </div>
         <span style="font-size:13px;font-weight:700;color:rgba(255,255,255,.9);flex-shrink:0;margin-left:8px;">${pct}%</span>
-      </div>
+      </div>`;})()}
       <div style="height:3px;background:rgba(255,255,255,.12);border-radius:99px;overflow:hidden;margin-bottom:5px;">
         <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#D05070,#E8C840,#C03030);border-radius:99px;transition:width .7s ease;"></div>
       </div>
