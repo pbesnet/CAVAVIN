@@ -621,7 +621,7 @@ div[onclick], span[onclick]{
       <div class="sn" onclick="nav('inv')"><span>📋</span>Inventaire</div>
       <div class="sn" onclick="nav('add')"><span>➕</span>Ajouter</div>
       <div class="sn" onclick="nav('chat')"><span>✨</span>Sommelier IA</div>
-      <div class="sn" onclick="nav('journal')"><span>📔</span>Journal dégustation</div>
+      <div class="sn" onclick="nav('journal')"><span>📔</span>Journal des sorties</div>
       <div class="sn" onclick="nav('transfer')"><span>🔄</span>Transfert cave</div>
       <div id="nav-settings" class="sn" onclick="nav('settings')"><span>⚙️</span>Paramètres</div>
     </div>
@@ -930,7 +930,10 @@ div[onclick], span[onclick]{
       <!-- PAGE: JOURNAL -->
       <div id="page-journal" class="page">
         <div style="padding:16px;">
-          <button class="btn btn-primary" style="width:100%;margin-bottom:16px;" onclick="openJournalModal()">📝 Nouvelle dégustation</button>
+          <div style="display:flex;gap:8px;margin-bottom:16px;">
+            <button class="btn btn-primary" style="flex:1;" onclick="openJournalModal(null,'degustation')">🍷 Dégustation</button>
+            <button class="btn btn-secondary" style="flex:1;" onclick="openJournalModal(null,'sortie')">📦 Sortie simple</button>
+          </div>
           <div id="journal-list"></div>
         </div>
       </div>
@@ -1064,6 +1067,7 @@ div[onclick], span[onclick]{
   <div class="modal" style="width:90%;max-width:500px;">
     <h3 id="j-modal-title" style="margin-bottom:16px;font-family:'Cormorant Garamond',serif;">Dégustation</h3>
     <input type="hidden" id="j-edit-id" value="">
+    <input type="hidden" id="j-type" value="degustation">
     <div class="form-group">
       <label class="form-label">Vin</label>
       <select id="j-vin" class="form-select"></select>
@@ -1072,6 +1076,7 @@ div[onclick], span[onclick]{
       <label class="form-label">Date</label>
       <input type="date" id="j-date" class="form-input">
     </div>
+    <div id="j-degustation-fields">
     <div class="form-group">
       <label class="form-label">Note</label>
       <input type="range" id="j-note" min="1" max="5" value="3" style="width:100%;">
@@ -1081,7 +1086,19 @@ div[onclick], span[onclick]{
       <label class="form-label">Commentaire</label>
       <textarea id="j-cmt" class="form-input" style="min-height:80px;resize:vertical;" placeholder="Vos impressions..."></textarea>
     </div>
-    <div class="form-group">
+    </div>
+    <div id="j-sortie-reason" class="form-group" style="display:none;">
+      <label class="form-label">Motif (optionnel)</label>
+      <select id="j-motif" class="form-select">
+        <option value="">— Aucun —</option>
+        <option value="offert">🎁 Offert</option>
+        <option value="cuisine">🍳 Cuisine</option>
+        <option value="casse">💔 Cassé / Abîmé</option>
+        <option value="autre">📝 Autre</option>
+      </select>
+      <textarea id="j-sortie-cmt" class="form-input" style="min-height:60px;resize:vertical;margin-top:8px;" placeholder="Commentaire optionnel..."></textarea>
+    </div>
+    <div class="form-group" id="j-rm-group">
       <div id="j-rm-row" onclick="toggleJRm()" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:10px 12px;background:#f5ede8;border-radius:10px;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none;">
         <span style="font-size:14px;color:#3a1a0a;pointer-events:none;">🍾 Retirer le vin après dégustation</span>
         <span id="j-rm-toggle" style="display:inline-block;width:44px;height:26px;border-radius:13px;background:#ccc;position:relative;transition:background .2s;flex-shrink:0;pointer-events:none;">
@@ -2151,14 +2168,17 @@ async function recalcStatsFromWines(){
 
 // Reconstruit les SORTIES depuis le journal : vins dans le journal mais plus dans la cave
 async function recalcSortiesFromJournal(){
-  if(!confirm('Reconstruire les sorties depuis le journal de dégustation ?\nChaque vin présent dans le journal mais retiré de la cave compte comme 1 sortie, à la date de sa dernière entrée de journal.'))return;
+  if(!confirm('Reconstruire les sorties depuis le journal ?\nChaque vin présent dans le journal (dégustation ou sortie) mais retiré de la cave compte comme 1 sortie, à la date de sa dernière entrée.'))return;
   const wineIds=new Set(db.wines.map(w=>String(w.id)));
   // Trouver par wineId la date la plus récente dans le journal → si le vin est absent de la cave = sorti
+  // Les entrées de type "sortie" comptent aussi comme des sorties
   const lastJournalByWine={};
   (db.journal||[]).forEach(j=>{
     if(!j.wineId)return;
     const key=String(j.wineId);
-    if(!lastJournalByWine[key]||j.date>lastJournalByWine[key])lastJournalByWine[key]=j.date;
+    // Priorité à la date de sortie explicite si elle existe
+    const jDate=j.date;
+    if(!lastJournalByWine[key]||jDate>lastJournalByWine[key])lastJournalByWine[key]=jDate;
   });
   const MIN_TS=new Date('2015-01-01').getTime();
   const MAX_TS=Date.now()+86400000;
@@ -3789,26 +3809,35 @@ function fabTouchEnd(e){
 // ═══════════════════════════════════════════
 function renderJournal(){
   const list=document.getElementById('journal-list');
-  if(!db.journal.length){list.innerHTML=`<div class="empty"><div class="empty-icon">📔</div><div>Aucune dégustation enregistrée</div></div>`;return;}
+  if(!db.journal.length){list.innerHTML=`<div class="empty"><div class="empty-icon">📔</div><div>Aucune sortie enregistrée</div></div>`;return;}
   // Déduplication par ID (évite les doublons dus à une double-sync)
   const seen=new Set();
   const uniqueJournal=[...db.journal].reverse().filter(j=>{if(seen.has(j.id))return false;seen.add(j.id);return true;});
   list.innerHTML=uniqueJournal.map(j=>{
+    const jType=j.type||'degustation';
+    const isSortie=jType==='sortie';
     const stillInCave=db.wines.some(w=>w.id===j.wineId);
     const wFull=db.wines.find(w=>w.id===j.wineId);
-    const rmBtn=stillInCave
-      ?`<button onclick="retireBottleFromJournal(${j.id},${j.wineId})" style="margin-top:8px;width:100%;background:transparent;border:1px dashed #dc2626;border-radius:8px;padding:6px 10px;font-size:12px;color:#dc2626;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;"><span>🍾</span>Retirer de la cave</button>`
-      :`<div style="margin-top:8px;font-size:11px;color:var(--ink3);display:flex;align-items:center;gap:4px;"><span>✅</span>Bouteille retirée de la cave</div>`;
-    // Infos vin enrichies — priorité wFull (vin encore en cave), fallback sur champs sauvegardés dans l'entrée journal
+    const rmBtn=isSortie
+      ?`<div style="margin-top:8px;font-size:11px;color:var(--ink3);display:flex;align-items:center;gap:4px;"><span>📦</span>Sortie de cave</div>`
+      :(stillInCave
+        ?`<button onclick="retireBottleFromJournal(${j.id},${j.wineId})" style="margin-top:8px;width:100%;background:transparent;border:1px dashed #dc2626;border-radius:8px;padding:6px 10px;font-size:12px;color:#dc2626;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;"><span>🍾</span>Retirer de la cave</button>`
+        :`<div style="margin-top:8px;font-size:11px;color:var(--ink3);display:flex;align-items:center;gap:4px;"><span>✅</span>Bouteille retirée de la cave</div>`);
     const couleur=wFull?.couleur||j.couleur||null;
     const couleurDot=couleur?`<span class="wc-dot ${couleur}" style="width:8px;height:8px;flex-shrink:0;"></span>`:'';
     const nomLine=wFull?wFull.nom:(j.wineName||'');
     const millesime=wFull?.millesime||j.millesime||'';
     const producteur=wFull?.producteur||j.producteur||'';
-    // maturity dot : si vin sorti, reconstruire objet minimal avec les champs sauvegardés
     const wForMat=wFull||(j.apogeeDebut&&j.apogeeFin?{apogeeDebut:j.apogeeDebut,apogeeFin:j.apogeeFin}:null);
     const matDot=wForMat?maturiteDot(wForMat):'';
-    return `<div class="jc">
+    // Badge type
+    const typeBadge=isSortie
+      ?`<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;background:rgba(245,166,35,.15);color:#E67E22;">📦 Sortie</span>`
+      :`<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;background:rgba(142,36,67,.12);color:#8E2443;">🍷 Dégustation</span>`;
+    // Motif pour sortie
+    const motifLabels={offert:'🎁 Offert',cuisine:'🍳 Cuisine',casse:'💔 Cassé / Abîmé',autre:'📝 Autre'};
+    const motifLine=isSortie&&j.motif?`<div style="font-size:12px;color:#E67E22;margin-top:4px;">${motifLabels[j.motif]||j.motif}</div>`:'';
+    return `<div class="jc" style="${isSortie?'border-left:3px solid #E67E22;':'border-left:3px solid #8E2443;'}">
       <div class="jh">
         <div style="display:flex;align-items:center;gap:5px;min-width:0;flex:1;margin-right:8px;">
           ${couleurDot}
@@ -3818,11 +3847,13 @@ function renderJournal(){
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          ${typeBadge}
           <div class="jd">${j.date}</div>
           <button onclick="openJournalModal(db.journal.find(x=>x.id===${j.id}))" style="background:var(--paper2);border:1px solid var(--border);border-radius:7px;padding:3px 8px;font-size:13px;cursor:pointer;color:var(--ink2);">✏️</button>
         </div>
       </div>
-      <div class="stars">${'⭐'.repeat(j.note)}</div>
+      ${!isSortie&&j.note?`<div class="stars">${'⭐'.repeat(j.note)}</div>`:''}
+      ${motifLine}
       ${j.cmt?`<div style="font-size:13px;color:var(--ink2);margin-top:4px;font-style:italic">"${j.cmt}"</div>`:''}
       ${rmBtn}
     </div>`;
@@ -3833,72 +3864,110 @@ function retireBottleFromJournal(journalId, wineId){
   const w=db.wines.find(x=>x.id===wineId);
   if(!w){showToast('⚠️ Bouteille introuvable');return;}
   if(!confirm(`Retirer "${w.nom}${w.millesime?' '+w.millesime:''}" de la cave ?`))return;
+  _addSortieJournalEntry(w);
   cascadeAfterRemoval(w);
   db.wines=db.wines.filter(x=>x.id!==wineId);
-  trackMouvement('s'); // ← sortie comptabilisée (manquait)
+  trackMouvement('s');
   dbSave();renderJournal();renderCavePage();
   showToast('🍾 Bouteille retirée de la cave');
 }
 
-function openJournalModal(entry){
+function openJournalModal(entry, type){
   document.getElementById('j-vin').innerHTML=db.wines.map(w=>`<option value="${w.id}">${w.nom}${w.millesime?' '+w.millesime:''}</option>`).join('');
+  const degFields=document.getElementById('j-degustation-fields');
+  const sortieFields=document.getElementById('j-sortie-reason');
+  const rmGroup=document.getElementById('j-rm-group');
   if(entry){
     // mode édition
+    const eType=entry.type||'degustation';
+    document.getElementById('j-type').value=eType;
     document.getElementById('j-edit-id').value=entry.id;
-    document.getElementById('j-modal-title').textContent='Modifier la dégustation';
+    document.getElementById('j-modal-title').textContent=eType==='sortie'?'Modifier la sortie':'Modifier la dégustation';
     document.getElementById('j-vin').value=entry.wineId;
     document.getElementById('j-date').value=entry.date;
-    document.getElementById('j-note').value=entry.note;
-    document.getElementById('j-note-display').textContent='⭐'.repeat(entry.note);
-    document.getElementById('j-cmt').value=entry.cmt||'';
+    if(eType==='degustation'){
+      degFields.style.display='';sortieFields.style.display='none';rmGroup.style.display='';
+      document.getElementById('j-note').value=entry.note||3;
+      document.getElementById('j-note-display').textContent='⭐'.repeat(entry.note||3);
+      document.getElementById('j-cmt').value=entry.cmt||'';
+    }else{
+      degFields.style.display='none';sortieFields.style.display='';rmGroup.style.display='none';
+      document.getElementById('j-motif').value=entry.motif||'';
+      document.getElementById('j-sortie-cmt').value=entry.cmt||'';
+    }
     resetJRmToggle();
     document.getElementById('j-vin').disabled=true;
-    // Griser le toggle "retirer" si la bouteille n'est plus dans la cave
     const bottleExists=!!db.wines.find(x=>x.id===entry.wineId);
     const rmRow=document.getElementById('j-rm-row');
     if(!bottleExists){
-      rmRow.style.opacity='0.4';
-      rmRow.style.pointerEvents='none';
-      rmRow.title='Bouteille déjà retirée de la cave';
+      rmRow.style.opacity='0.4';rmRow.style.pointerEvents='none';rmRow.title='Bouteille déjà retirée de la cave';
     }else{
-      rmRow.style.opacity='1';
-      rmRow.style.pointerEvents='';
-      rmRow.title='';
+      rmRow.style.opacity='1';rmRow.style.pointerEvents='';rmRow.title='';
     }
   }else{
+    const t=type||'degustation';
+    document.getElementById('j-type').value=t;
     document.getElementById('j-edit-id').value='';
-    document.getElementById('j-modal-title').textContent='Dégustation';
+    document.getElementById('j-modal-title').textContent=t==='sortie'?'📦 Sortie simple':'🍷 Dégustation';
     document.getElementById('j-date').value=new Date().toISOString().split('T')[0];
     document.getElementById('j-cmt').value='';
+    document.getElementById('j-sortie-cmt').value='';
+    document.getElementById('j-motif').value='';
     document.getElementById('j-vin').disabled=false;
     resetJRmToggle();
-    const rmRow=document.getElementById('j-rm-row');
-    rmRow.style.opacity='1';rmRow.style.pointerEvents='';rmRow.title='';
+    if(t==='sortie'){
+      degFields.style.display='none';sortieFields.style.display='';rmGroup.style.display='none';
+    }else{
+      degFields.style.display='';sortieFields.style.display='none';rmGroup.style.display='';
+      const rmRow=document.getElementById('j-rm-row');
+      rmRow.style.opacity='1';rmRow.style.pointerEvents='';rmRow.title='';
+    }
   }
   openOv('ov-journal');
 }
 
 function saveJournal(){
   const editId=document.getElementById('j-edit-id').value;
+  const jType=document.getElementById('j-type').value||'degustation';
   const wineId=parseInt(document.getElementById('j-vin').value);
   const w=db.wines.find(x=>x.id===wineId)||{nom:'?',millesime:null};
-  const note=parseInt(document.getElementById('j-note').value);
-  const cmt=document.getElementById('j-cmt').value.trim();
   const date=document.getElementById('j-date').value;
   if(editId){
     // mise à jour
     const idx=db.journal.findIndex(j=>j.id===parseInt(editId));
-    if(idx>=0) db.journal[idx]={...db.journal[idx],date,note,cmt};
+    if(idx>=0){
+      if(jType==='sortie'){
+        db.journal[idx]={...db.journal[idx],date,motif:document.getElementById('j-motif').value,cmt:document.getElementById('j-sortie-cmt').value.trim()};
+      }else{
+        const note=parseInt(document.getElementById('j-note').value);
+        const cmt=document.getElementById('j-cmt').value.trim();
+        db.journal[idx]={...db.journal[idx],date,note,cmt};
+      }
+    }
     dbSave();closeOv('ov-journal');document.getElementById('j-vin').disabled=false;
-    renderJournal();showToast('✏️ Dégustation mise à jour !');
+    renderJournal();showToast(jType==='sortie'?'✏️ Sortie mise à jour !':'✏️ Dégustation mise à jour !');
   }else{
     if(!w.nom||w.nom==='?'){showToast('⚠️ Aucun vin sélectionné');return;}
-    db.journal.push({id:Date.now(),wineId,wineName:`${w.nom}${w.millesime?' '+w.millesime:''}`,
+    const baseEntry={id:Date.now(),wineId,wineName:`${w.nom}${w.millesime?' '+w.millesime:''}`,
       couleur:w.couleur||null,producteur:w.producteur||'',millesime:w.millesime||null,
       apogeeDebut:w.apogeeDebut||null,apogeeFin:w.apogeeFin||null,
-      date,note,cmt});
-    if(document.getElementById('j-rm').checked){const _w=db.wines.find(x=>x.id===wineId);if(_w)cascadeAfterRemoval(_w);db.wines=db.wines.filter(x=>x.id!==wineId);trackMouvement('s');}
-    dbSave();closeOv('ov-journal');resetJRmToggle();renderJournal();renderCavePage();showToast('📔 Dégustation enregistrée !');
+      date,type:jType};
+    if(jType==='sortie'){
+      baseEntry.motif=document.getElementById('j-motif').value;
+      baseEntry.cmt=document.getElementById('j-sortie-cmt').value.trim();
+      baseEntry.note=0;
+      // Sortie simple → retrait automatique de la cave
+      const _w=db.wines.find(x=>x.id===wineId);
+      if(_w)cascadeAfterRemoval(_w);
+      db.wines=db.wines.filter(x=>x.id!==wineId);trackMouvement('s');
+    }else{
+      baseEntry.note=parseInt(document.getElementById('j-note').value);
+      baseEntry.cmt=document.getElementById('j-cmt').value.trim();
+      if(document.getElementById('j-rm').checked){const _w=db.wines.find(x=>x.id===wineId);if(_w)cascadeAfterRemoval(_w);db.wines=db.wines.filter(x=>x.id!==wineId);trackMouvement('s');}
+    }
+    db.journal.push(baseEntry);
+    dbSave();closeOv('ov-journal');resetJRmToggle();renderJournal();renderCavePage();
+    showToast(jType==='sortie'?'📦 Bouteille sortie de la cave !':'📔 Dégustation enregistrée !');
   }
 }
 
@@ -5418,14 +5487,21 @@ function showDetail(id,fromChat=false){
 }
 
 function openJournalForWine(wineId){
-  openJournalModal();
+  openJournalModal(null,'degustation');
   document.getElementById('j-vin').value=wineId;
+}
+
+function _addSortieJournalEntry(wine){
+  db.journal.push({id:Date.now(),wineId:wine.id,wineName:`${wine.nom}${wine.millesime?' '+wine.millesime:''}`,
+    couleur:wine.couleur||null,producteur:wine.producteur||'',millesime:wine.millesime||null,
+    apogeeDebut:wine.apogeeDebut||null,apogeeFin:wine.apogeeFin||null,
+    date:new Date().toISOString().split('T')[0],type:'sortie',note:0,cmt:'',motif:''});
 }
 
 function removeWine(id){
   if(!confirm('Retirer cette bouteille de la cave ?'))return;
   const wine=db.wines.find(w=>w.id===id);
-  if(wine)cascadeAfterRemoval(wine);
+  if(wine){_addSortieJournalEntry(wine);cascadeAfterRemoval(wine);}
   db.wines=db.wines.filter(w=>w.id!==id);trackMouvement('s');dbSave();
   closeOv('ov-detail');if(currentPage==='cave')renderCavePage();
   showToast((!currentUser||isDemo)?'💾 Bouteille retirée (hors ligne)':'🗑️ Bouteille retirée');
@@ -5434,7 +5510,7 @@ function removeWine(id){
 function removeWineFromAccord(id){
   if(!confirm('Retirer cette bouteille de la cave ?'))return;
   const wine=db.wines.find(w=>w.id===id);
-  if(wine)cascadeAfterRemoval(wine);
+  if(wine){_addSortieJournalEntry(wine);cascadeAfterRemoval(wine);}
   db.wines=db.wines.filter(w=>w.id!==id);trackMouvement('s');dbSave();
   closeAccPanel();
   renderAccList();
@@ -6240,7 +6316,7 @@ function recoIgnore(i){
 
 function recoRemove(i,wineId){
   if(!confirm('Retirer cette bouteille de la mémoire ?'))return;
-  const _rw=db.wines.find(w=>w.id===wineId);if(_rw)cascadeAfterRemoval(_rw);
+  const _rw=db.wines.find(w=>w.id===wineId);if(_rw){_addSortieJournalEntry(_rw);cascadeAfterRemoval(_rw);}
   db.wines=db.wines.filter(w=>w.id!==wineId);trackMouvement('s');dbSave();
   const card=document.getElementById('reco-ecart-'+i);
   if(card){card.style.background='var(--blanc-l)';card.querySelector('div>div:first-child')?.after(Object.assign(document.createElement('div'),{textContent:'✅ Retiré de la mémoire',style:'font-size:12px;color:var(--blanc);font-weight:700;margin-bottom:6px;'}));card.querySelectorAll('button').forEach(b=>b.remove());}
@@ -6285,7 +6361,7 @@ function nav(page){
   document.querySelectorAll('.sn').forEach(s=>s.classList.remove('on'));
   document.querySelector(`.sn[onclick*="'${page}'"]`)?.classList.add('on');
 
-  const titles={cave:'🍷 Ma Cave',inv:'📋 Inventaire',add:'➕ Ajouter un vin',accord:'🍽️ Accords mets & vins',journal:'📔 Journal de dégustation',chat:'🤖 Sommelier IA',supercave:'🏠 Accueil',transfer:'🔄 Transfert cave',settings:'⚙️ Configuration'};
+  const titles={cave:'🍷 Ma Cave',inv:'📋 Inventaire',add:'➕ Ajouter un vin',accord:'🍽️ Accords mets & vins',journal:'📔 Journal des sorties',chat:'🤖 Sommelier IA',supercave:'🏠 Accueil',transfer:'🔄 Transfert cave',settings:'⚙️ Configuration'};
   document.getElementById('topbar-title').textContent=titles[page]||page;
   // Masquer le sélecteur de cave sur les pages où il n'est pas pertinent
   const hideSel=['accord','journal','chat','supercave','transfer','settings','add','inv'];
