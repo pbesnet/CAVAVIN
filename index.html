@@ -5254,7 +5254,7 @@ function renderInv(){
     if(invCaveFilter!==null&&w.caveId!==invCaveFilter)return false;
     if(invFilter!=='tous'&&w.couleur!==invFilter)return false;
     if(invRegionFilter!==null&&w.region!==invRegionFilter)return false;
-    if(invMaturiteFilter!==null&&maturiteStatus(w)!==invMaturiteFilter)return false;
+    if(invMaturiteFilter!==null){if(w.couleur==='rhum')return false;if(maturiteStatus(w)!==invMaturiteFilter)return false;}
     if(invRhumTypeFilter!==null&&w.rhumType!==invRhumTypeFilter)return false;
     if(q){
       const searchStr=w.couleur==='rhum'
