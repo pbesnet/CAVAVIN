@@ -1070,8 +1070,9 @@ div[onclick], span[onclick]{
     <input type="hidden" id="j-type" value="degustation">
     <div class="form-group">
       <label class="form-label">Vin</label>
-      <select id="j-vin" class="form-select"></select>
+      <select id="j-vin" class="form-select" onchange="updateJVinDetails()"></select>
     </div>
+    <div id="j-vin-details" style="display:none;background:#f5ede8;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#3a1a0a;line-height:1.5;"></div>
     <div class="form-group">
       <label class="form-label">Date</label>
       <input type="date" id="j-date" class="form-input">
@@ -3868,10 +3869,45 @@ function retireBottleFromJournal(journalId, wineId){
   if(!confirm(`Retirer "${w.nom}${w.millesime?' '+w.millesime:''}" de la cave ?`))return;
   _addSortieJournalEntry(w);
   cascadeAfterRemoval(w);
+  w.photo=null; // effacement photo de la base lors du retrait
   db.wines=db.wines.filter(x=>x.id!==wineId);
   trackMouvement('s');
   dbSave();renderJournal();renderCavePage();
   showToast('🍾 Bouteille retirée de la cave');
+}
+
+// Construit un résumé HTML des détails d'un vin (depuis objet vin ou entrée journal)
+function _buildJVinDetailsHTML(src){
+  if(!src)return '';
+  const isRhum=src.couleur==='rhum'||src.rhumType;
+  const parts=[];
+  const nom=src.nom||src.wineName||'';
+  if(nom)parts.push(`<div style="font-weight:600;font-size:13px;margin-bottom:4px;">${nom}${src.millesime?' '+src.millesime:''}</div>`);
+  const rows=[];
+  if(isRhum){
+    if(src.rhumType)rows.push(`<b>Type :</b> ${src.rhumType}`);
+    if(src.distillerie)rows.push(`<b>Distillerie :</b> ${src.distillerie}`);
+    if(src.pays)rows.push(`<b>Pays :</b> ${src.pays}`);
+  }else{
+    if(src.couleur)rows.push(`<b>Couleur :</b> ${src.couleur}`);
+    if(src.producteur)rows.push(`<b>Producteur :</b> ${src.producteur}`);
+    if(src.appellation)rows.push(`<b>Appellation :</b> ${src.appellation}`);
+    if(src.region)rows.push(`<b>Région :</b> ${src.region}`);
+  }
+  if(src.prix)rows.push(`<b>Prix :</b> ${src.prix}€`);
+  if(src.scorePresse)rows.push(`<b>Score :</b> ${src.scorePresse}/100`);
+  if(src.dateAchat)rows.push(`<b>Acheté :</b> ${src.dateAchat}`);
+  if(src.apogeeDebut&&src.apogeeFin)rows.push(`<b>Apogée :</b> ${src.apogeeDebut}-${src.apogeeFin}`);
+  return parts.join('')+rows.join(' · ');
+}
+
+// Met à jour la zone de détails en fonction du vin sélectionné (mode création)
+function updateJVinDetails(){
+  const wid=parseInt(document.getElementById('j-vin').value);
+  const w=db.wines.find(x=>x.id===wid);
+  const box=document.getElementById('j-vin-details');
+  if(w){box.innerHTML=_buildJVinDetailsHTML(w);box.style.display='';}
+  else{box.style.display='none';box.innerHTML='';}
 }
 
 function openJournalModal(entry, type){
@@ -3885,8 +3921,21 @@ function openJournalModal(entry, type){
     document.getElementById('j-type').value=eType;
     document.getElementById('j-edit-id').value=entry.id;
     document.getElementById('j-modal-title').textContent=eType==='sortie'?'Modifier la sortie':'Modifier la dégustation';
+    // Si la bouteille n'est plus en cave, ajouter une option virtuelle pour l'afficher
+    const wStill=db.wines.find(x=>x.id===entry.wineId);
+    if(!wStill){
+      const opt=document.createElement('option');
+      opt.value=entry.wineId;
+      opt.textContent=`${entry.wineName||entry.nom||'?'} (retiré)`;
+      document.getElementById('j-vin').appendChild(opt);
+    }
     document.getElementById('j-vin').value=entry.wineId;
     document.getElementById('j-date').value=entry.date;
+    // Détails vin : priorité à l'objet en cave, sinon fallback sur les champs sauvegardés dans l'entrée
+    const detailsSrc=wStill||entry;
+    const box=document.getElementById('j-vin-details');
+    const html=_buildJVinDetailsHTML(detailsSrc);
+    if(html){box.innerHTML=html;box.style.display='';}else{box.style.display='none';}
     if(eType==='degustation'){
       degFields.style.display='';sortieFields.style.display='none';rmGroup.style.display='';
       document.getElementById('j-note').value=entry.note||3;
@@ -3915,7 +3964,14 @@ function openJournalModal(entry, type){
     document.getElementById('j-cmt').value='';
     document.getElementById('j-sortie-cmt').value='';
     document.getElementById('j-motif').value='';
+    // Reset note à 3 étoiles par défaut (sinon garde la dernière consultation)
+    document.getElementById('j-note').value=3;
+    document.getElementById('j-note-display').textContent='⭐⭐⭐';
+    // Reset sélection vin sur le premier élément et afficher ses détails
+    const sel=document.getElementById('j-vin');
+    if(sel.options.length>0)sel.selectedIndex=0;
     document.getElementById('j-vin').disabled=false;
+    updateJVinDetails();
     resetJRmToggle();
     if(t==='sortie'){
       degFields.style.display='none';sortieFields.style.display='';rmGroup.style.display='none';
@@ -3950,22 +4006,33 @@ function saveJournal(){
     renderJournal();showToast(jType==='sortie'?'✏️ Sortie mise à jour !':'✏️ Dégustation mise à jour !');
   }else{
     if(!w.nom||w.nom==='?'){showToast('⚠️ Aucun vin sélectionné');return;}
+    // Stocke un snapshot COMPLET des détails du vin (hors photo) pour pouvoir les afficher même après retrait de la cave
     const baseEntry={id:Date.now(),wineId,wineName:`${w.nom}${w.millesime?' '+w.millesime:''}`,
-      couleur:w.couleur||null,producteur:w.producteur||'',millesime:w.millesime||null,
+      nom:w.nom||null,couleur:w.couleur||null,producteur:w.producteur||'',millesime:w.millesime||null,
+      appellation:w.appellation||null,region:w.region||null,pays:w.pays||null,
+      prix:w.prix||null,scorePresse:w.scorePresse||null,dateAchat:w.dateAchat||null,
+      rhumType:w.rhumType||null,distillerie:w.distillerie||null,
       apogeeDebut:w.apogeeDebut||null,apogeeFin:w.apogeeFin||null,
       date,type:jType};
+    // Fonction locale pour retirer une bouteille et effacer sa photo de la base
+    const _removeBottle=(wid)=>{
+      const _w=db.wines.find(x=>x.id===wid);
+      if(!_w)return;
+      cascadeAfterRemoval(_w);
+      _w.photo=null; // effacement explicite de la photo avant suppression (sécurité base légère)
+      db.wines=db.wines.filter(x=>x.id!==wid);
+      trackMouvement('s');
+    };
     if(jType==='sortie'){
       baseEntry.motif=document.getElementById('j-motif').value;
       baseEntry.cmt=document.getElementById('j-sortie-cmt').value.trim();
       baseEntry.note=0;
-      // Sortie simple → retrait automatique de la cave
-      const _w=db.wines.find(x=>x.id===wineId);
-      if(_w)cascadeAfterRemoval(_w);
-      db.wines=db.wines.filter(x=>x.id!==wineId);trackMouvement('s');
+      // Sortie simple → retrait automatique de la cave (photo effacée)
+      _removeBottle(wineId);
     }else{
       baseEntry.note=parseInt(document.getElementById('j-note').value);
       baseEntry.cmt=document.getElementById('j-cmt').value.trim();
-      if(document.getElementById('j-rm').checked){const _w=db.wines.find(x=>x.id===wineId);if(_w)cascadeAfterRemoval(_w);db.wines=db.wines.filter(x=>x.id!==wineId);trackMouvement('s');}
+      if(document.getElementById('j-rm').checked)_removeBottle(wineId);
     }
     db.journal.push(baseEntry);
     dbSave();closeOv('ov-journal');resetJRmToggle();renderJournal();renderCavePage();
@@ -4086,8 +4153,9 @@ function buildCaveContextForAI(){
 // Construit un contexte complet du JOURNAL (dégustations + sorties) pour l'IA
 // Inclut TOUS les enregistrements, même pour vins qui ne sont plus en cave
 function buildJournalContextForAI(){
-  const J=db.journal||[];
-  if(!J.length)return 'Journal vide.';
+  // Le Sommelier IA n'analyse QUE les dégustations (avec note), pas les sorties simples
+  const J=(db.journal||[]).filter(j=>j.type==='degustation');
+  if(!J.length)return 'Aucune dégustation enregistrée.';
   // Index rapide vin par id (vins encore en cave)
   const wineById={};
   (db.wines||[]).forEach(w=>{wineById[w.id]=w;});
@@ -4110,10 +4178,9 @@ function buildJournalContextForAI(){
     return `  [${type}] ${j.date||'?'} "${nom}"${mill?' '+mill:''}${coul?' '+coul:''}${prod?' · '+prod:''}${appel?' · '+appel:''} (${enCave})${noteStr}${ctx}${acc}${cmt}${idRef}`;
   });
   // Stats rapides
-  const degs=J.filter(j=>j.type==='degustation');
-  const notes=degs.map(j=>+j.note).filter(n=>!isNaN(n)&&n>0);
+  const notes=J.map(j=>+j.note).filter(n=>!isNaN(n)&&n>0);
   const moy=notes.length?(notes.reduce((a,b)=>a+b,0)/notes.length).toFixed(2):'?';
-  const head=`JOURNAL (${J.length} entrées · ${degs.length} dégustations · note moyenne ${moy}★)`;
+  const head=`DÉGUSTATIONS (${J.length} dégustations · note moyenne ${moy}★)`;
   return head+'\n'+lines.join('\n');
 }
 
@@ -4157,10 +4224,10 @@ Ton amical, tu tutoies. Format aéré avec des emojis.`}
 Caves (chaque vin inclut : emplacement, producteur, appellation, prix, score critique /100, date d'achat, maturité actuelle, et dernière note de dégustation si disponible) :
 ${cavesCtx}
 
-Journal des sorties & dégustations (historique COMPLET, y compris vins déjà bus / sortis de la cave — sers-t'en pour analyser les goûts de l'utilisateur, repérer ses préférences, comparer millésimes, suivre l'évolution d'un vin, et faire des recommandations personnalisées) :
+Dégustations (historique COMPLET des vins dégustés, y compris ceux déjà bus — sers-t'en pour analyser les goûts de l'utilisateur, repérer ses préférences, comparer millésimes, suivre l'évolution d'un vin, et faire des recommandations personnalisées. Les sorties simples sans note sont exclues volontairement.) :
 ${journalCtx}
 
-ANALYSE DES DÉGUSTATIONS : quand l'utilisateur te demande son profil, ses préférences, "qu'est-ce que j'aime", un bilan, une analyse de ses dégustations, ou une reco basée sur son historique → exploite le JOURNAL ci-dessus (régions/cépages/styles préférés d'après les meilleures notes, vins déçus, accords qui ont marché, évolution des goûts dans le temps, vins à racheter).
+ANALYSE DES DÉGUSTATIONS : quand l'utilisateur te demande son profil, ses préférences, "qu'est-ce que j'aime", un bilan, une analyse de ses dégustations, ou une reco basée sur son historique → exploite UNIQUEMENT les dégustations ci-dessus (régions/cépages/styles préférés d'après les meilleures notes, vins déçus, accords qui ont marché, évolution des goûts dans le temps, vins à racheter).
 
 QUAND ON TE DEMANDE D'ANALYSER UN VIN SPÉCIFIQUE (par nom, photo, ou en disant "parle-moi de ce vin"), donne une fiche détaillée :
 - TERROIR : sol, climat, spécificités du terroir qui donnent son caractère au vin
@@ -5535,7 +5602,10 @@ function openJournalForWine(wineId){
 
 function _addSortieJournalEntry(wine){
   db.journal.push({id:Date.now(),wineId:wine.id,wineName:`${wine.nom}${wine.millesime?' '+wine.millesime:''}`,
-    couleur:wine.couleur||null,producteur:wine.producteur||'',millesime:wine.millesime||null,
+    nom:wine.nom||null,couleur:wine.couleur||null,producteur:wine.producteur||'',millesime:wine.millesime||null,
+    appellation:wine.appellation||null,region:wine.region||null,pays:wine.pays||null,
+    prix:wine.prix||null,scorePresse:wine.scorePresse||null,dateAchat:wine.dateAchat||null,
+    rhumType:wine.rhumType||null,distillerie:wine.distillerie||null,
     apogeeDebut:wine.apogeeDebut||null,apogeeFin:wine.apogeeFin||null,
     date:new Date().toISOString().split('T')[0],type:'sortie',note:0,cmt:'',motif:''});
 }
@@ -5543,7 +5613,7 @@ function _addSortieJournalEntry(wine){
 function removeWine(id){
   if(!confirm('Retirer cette bouteille de la cave ?'))return;
   const wine=db.wines.find(w=>w.id===id);
-  if(wine){_addSortieJournalEntry(wine);cascadeAfterRemoval(wine);}
+  if(wine){_addSortieJournalEntry(wine);cascadeAfterRemoval(wine);wine.photo=null;}
   db.wines=db.wines.filter(w=>w.id!==id);trackMouvement('s');dbSave();
   closeOv('ov-detail');if(currentPage==='cave')renderCavePage();
   showToast((!currentUser||isDemo)?'💾 Bouteille retirée (hors ligne)':'🗑️ Bouteille retirée');
@@ -5552,7 +5622,7 @@ function removeWine(id){
 function removeWineFromAccord(id){
   if(!confirm('Retirer cette bouteille de la cave ?'))return;
   const wine=db.wines.find(w=>w.id===id);
-  if(wine){_addSortieJournalEntry(wine);cascadeAfterRemoval(wine);}
+  if(wine){_addSortieJournalEntry(wine);cascadeAfterRemoval(wine);wine.photo=null;}
   db.wines=db.wines.filter(w=>w.id!==id);trackMouvement('s');dbSave();
   closeAccPanel();
   renderAccList();
@@ -6358,7 +6428,7 @@ function recoIgnore(i){
 
 function recoRemove(i,wineId){
   if(!confirm('Retirer cette bouteille de la mémoire ?'))return;
-  const _rw=db.wines.find(w=>w.id===wineId);if(_rw){_addSortieJournalEntry(_rw);cascadeAfterRemoval(_rw);}
+  const _rw=db.wines.find(w=>w.id===wineId);if(_rw){_addSortieJournalEntry(_rw);cascadeAfterRemoval(_rw);_rw.photo=null;}
   db.wines=db.wines.filter(w=>w.id!==wineId);trackMouvement('s');dbSave();
   const card=document.getElementById('reco-ecart-'+i);
   if(card){card.style.background='var(--blanc-l)';card.querySelector('div>div:first-child')?.after(Object.assign(document.createElement('div'),{textContent:'✅ Retiré de la mémoire',style:'font-size:12px;color:var(--blanc);font-weight:700;margin-bottom:6px;'}));card.querySelectorAll('button').forEach(b=>b.remove());}
@@ -6580,11 +6650,30 @@ function renderSupercave(){
   const valeur=wines.reduce((s,w)=>s+(w.prix||0),0);
 
   // ── 2b. Entrées / Sorties 12 mois ──
-  // Les deux depuis statsAnnuelles (correctement syncées après fix journal+logout)
+  // Calcul direct depuis les données réelles (plus fiable que statsAnnuelles qui peut contenir des données obsolètes/démo)
+  // Entrées : depuis wine.id (timestamp de création) pour les vins encore en cave + wine.dateAchat en fallback
+  //          + vins sortis : on retrouve via les entrées journal (nom conservé) mais sans dateAchat fiable → ignorés ici
+  // Sorties : depuis db.journal (TOUS types : dégustation + sortie simple = sortie de cave)
   const monthLabels=['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
-  const curYearStr=year.toString();
-  const yearStats=(db.statsAnnuelles||{})[curYearStr]||{};
-  const chartData=monthLabels.map((_,i)=>{const m=(i+1).toString().padStart(2,'0');const s=yearStats[m]||{e:0,s:0};return{e:s.e||0,s:s.s||0};});
+  const chartData=monthLabels.map(()=>({e:0,s:0}));
+  // Entrées
+  (db.wines||[]).forEach(w=>{
+    let d=null;
+    // 1) wine.id est un timestamp (Date.now) pour les vins ajoutés récemment
+    if(w.id&&typeof w.id==='number'&&w.id>1e12){d=new Date(w.id);}
+    // 2) fallback : dateAchat (format YYYY-MM-DD ou YYYY)
+    else if(w.dateAchat){const s=String(w.dateAchat);if(/^\d{4}-\d{2}/.test(s))d=new Date(s);}
+    if(!d||isNaN(d))return;
+    if(d.getFullYear()!==year)return;
+    chartData[d.getMonth()].e++;
+  });
+  // Sorties : toutes les entrées du journal (dégustation + sortie simple)
+  (db.journal||[]).forEach(j=>{
+    if(!j.date)return;
+    const d=new Date(j.date);
+    if(isNaN(d)||d.getFullYear()!==year)return;
+    chartData[d.getMonth()].s++;
+  });
   const chartMax=Math.max(1,...chartData.map(d=>Math.max(d.e,d.s)));
   const chartHasData=chartData.some(d=>d.e>0||d.s>0);
 
