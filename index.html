@@ -2248,7 +2248,7 @@ let _pendingSync=false; // true si des changements n'ont pas encore été envoy�
 // Stocke le dernier état synchronisé : {id: JSON_string_du_vin/cave}
 let _syncSnapshotWines={};
 let _syncSnapshotCaves={};
-let _syncSnapshotJournalIds=new Set(); // IDs des entrées journal déjà syncées
+let _syncSnapshotJournal={}; // {id: JSON_string} des entrées journal déjà syncées (pour détecter ajouts ET modifs)
 let _syncSnapshotStats='{}'; // JSON des stats pour détecter les changements stats-only
 
 function _updateSyncSnapshot(){
@@ -2256,7 +2256,8 @@ function _updateSyncSnapshot(){
   db.wines.forEach(w=>{_syncSnapshotWines[String(w.id)]=JSON.stringify(w);});
   _syncSnapshotCaves={};
   db.caves.forEach(c=>{_syncSnapshotCaves[String(c.id)]=JSON.stringify(c);});
-  _syncSnapshotJournalIds=new Set((db.journal||[]).map(j=>String(j.id)));
+  _syncSnapshotJournal={};
+  (db.journal||[]).forEach(j=>{_syncSnapshotJournal[String(j.id)]=JSON.stringify(j);});
   _syncSnapshotStats=JSON.stringify(db.statsAnnuelles||{});
 }
 
@@ -2284,9 +2285,10 @@ function _computeDelta(){
   Object.keys(_syncSnapshotCaves).forEach(id=>{
     if(!db.caves.find(c=>String(c.id)===id))deletedCaveIds.push(Number(id));
   });
-  // Nouvelles entrées journal (non encore syncées)
+  // Entrées journal ajoutées OU modifiées (ex: édition motif/commentaire d'une sortie)
   (db.journal||[]).forEach(j=>{
-    if(!_syncSnapshotJournalIds.has(String(j.id)))newJournalEntries.push(j);
+    const k=String(j.id);
+    if(!_syncSnapshotJournal[k]||_syncSnapshotJournal[k]!==JSON.stringify(j))newJournalEntries.push(j);
   });
   // Stats modifiées depuis le dernier snapshot (pour détecter changements stats-only)
   const statsChanged=JSON.stringify(db.statsAnnuelles||{})!==_syncSnapshotStats;
