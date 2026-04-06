@@ -4083,6 +4083,40 @@ function buildCaveContextForAI(){
   }).join('\n\n');
 }
 
+// Construit un contexte complet du JOURNAL (dégustations + sorties) pour l'IA
+// Inclut TOUS les enregistrements, même pour vins qui ne sont plus en cave
+function buildJournalContextForAI(){
+  const J=db.journal||[];
+  if(!J.length)return 'Journal vide.';
+  // Index rapide vin par id (vins encore en cave)
+  const wineById={};
+  (db.wines||[]).forEach(w=>{wineById[w.id]=w;});
+  // Tri du plus récent au plus ancien
+  const sorted=[...J].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const lines=sorted.map(j=>{
+    const w=wineById[j.wineId];
+    const nom=j.nom||(w?w.nom:'?');
+    const mill=j.millesime||(w?w.millesime:'')||'';
+    const coul=j.couleur||(w?w.couleur:'')||'';
+    const prod=j.producteur||(w?w.producteur:'')||'';
+    const appel=j.appellation||(w?w.appellation:'')||'';
+    const enCave=w?'en cave':'sorti';
+    const type=j.type==='degustation'?'DÉG':'SORTIE';
+    const noteStr=(j.note!=null&&j.note!=='')?` ${j.note}★`:'';
+    const cmt=j.cmt?` "${String(j.cmt).slice(0,160)}"`:'';
+    const ctx=j.contexte?` ctx:${j.contexte}`:'';
+    const acc=j.accord?` accord:${j.accord}`:'';
+    const idRef=j.wineId?` [[${j.wineId}]]`:'';
+    return `  [${type}] ${j.date||'?'} "${nom}"${mill?' '+mill:''}${coul?' '+coul:''}${prod?' · '+prod:''}${appel?' · '+appel:''} (${enCave})${noteStr}${ctx}${acc}${cmt}${idRef}`;
+  });
+  // Stats rapides
+  const degs=J.filter(j=>j.type==='degustation');
+  const notes=degs.map(j=>+j.note).filter(n=>!isNaN(n)&&n>0);
+  const moy=notes.length?(notes.reduce((a,b)=>a+b,0)/notes.length).toFixed(2):'?';
+  const head=`JOURNAL (${J.length} entrées · ${degs.length} dégustations · note moyenne ${moy}★)`;
+  return head+'\n'+lines.join('\n');
+}
+
 
 async function sendChat(){
   const inp=document.getElementById('chat-in');
@@ -4091,6 +4125,7 @@ async function sendChat(){
   inp.value='';inp.style.height='';
 
   const cavesCtx=buildCaveContextForAI();
+  const journalCtx=buildJournalContextForAI();
 
   if(chatB64){
     const img=chatB64;chatB64=null;
@@ -4121,6 +4156,11 @@ Ton amical, tu tutoies. Format aéré avec des emojis.`}
   const sys=`Tu es un sommelier expert et assistant cave personnel. Tu tutoies. Réponses pratiques et riches en détails œnologiques.
 Caves (chaque vin inclut : emplacement, producteur, appellation, prix, score critique /100, date d'achat, maturité actuelle, et dernière note de dégustation si disponible) :
 ${cavesCtx}
+
+Journal des sorties & dégustations (historique COMPLET, y compris vins déjà bus / sortis de la cave — sers-t'en pour analyser les goûts de l'utilisateur, repérer ses préférences, comparer millésimes, suivre l'évolution d'un vin, et faire des recommandations personnalisées) :
+${journalCtx}
+
+ANALYSE DES DÉGUSTATIONS : quand l'utilisateur te demande son profil, ses préférences, "qu'est-ce que j'aime", un bilan, une analyse de ses dégustations, ou une reco basée sur son historique → exploite le JOURNAL ci-dessus (régions/cépages/styles préférés d'après les meilleures notes, vins déçus, accords qui ont marché, évolution des goûts dans le temps, vins à racheter).
 
 QUAND ON TE DEMANDE D'ANALYSER UN VIN SPÉCIFIQUE (par nom, photo, ou en disant "parle-moi de ce vin"), donne une fiche détaillée :
 - TERROIR : sol, climat, spécificités du terroir qui donnent son caractère au vin
