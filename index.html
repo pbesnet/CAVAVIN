@@ -4173,19 +4173,40 @@ function buildJournalContextForAI(){
   const sorted=[...J].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const lines=sorted.map(j=>{
     const w=wineById[j.wineId];
-    const nom=j.nom||(w?w.nom:'?');
-    const mill=j.millesime||(w?w.millesime:'')||'';
-    const coul=j.couleur||(w?w.couleur:'')||'';
-    const prod=j.producteur||(w?w.producteur:'')||'';
-    const appel=j.appellation||(w?w.appellation:'')||'';
-    const enCave=w?'en cave':'sorti';
-    const type=j.type==='degustation'?'DÉG':'SORTIE';
-    const noteStr=(j.note!=null&&j.note!=='')?` ${j.note}★`:'';
-    const cmt=j.cmt?` "${String(j.cmt).slice(0,160)}"`:'';
-    const ctx=j.contexte?` ctx:${j.contexte}`:'';
-    const acc=j.accord?` accord:${j.accord}`:'';
+    // Priorité : snapshot journal → fallback vin encore en cave
+    const g=(k)=>j[k]!=null&&j[k]!==''?j[k]:(w?w[k]:null);
+    const nom=g('nom')||j.wineName||'?';
+    const mill=g('millesime')||'';
+    const coul=g('couleur')||'';
+    const prod=g('producteur')||'';
+    const appel=g('appellation')||'';
+    const region=g('region')||'';
+    const pays=g('pays')||'';
+    const prix=g('prix');
+    const score=g('scorePresse');
+    const dAch=g('dateAchat')||'';
+    const apD=g('apogeeDebut'),apF=g('apogeeFin');
+    const rhumT=g('rhumType')||'';
+    const dist=g('distillerie')||'';
+    const enCave=w?'en cave':'déjà bu/sorti';
+    const noteStr=(j.note!=null&&j.note!==''&&+j.note>0)?` note:${j.note}★`:'';
+    const cmt=j.cmt?` cmt:"${String(j.cmt).slice(0,300)}"`:'';
     const idRef=j.wineId?` [[${j.wineId}]]`:'';
-    return `  [${type}] ${j.date||'?'} "${nom}"${mill?' '+mill:''}${coul?' '+coul:''}${prod?' · '+prod:''}${appel?' · '+appel:''} (${enCave})${noteStr}${ctx}${acc}${cmt}${idRef}`;
+    // Champs optionnels
+    const bits=[];
+    if(mill)bits.push(mill);
+    if(coul)bits.push(coul);
+    if(prod)bits.push('prod:'+prod);
+    if(appel)bits.push('appel:'+appel);
+    if(region)bits.push('région:'+region);
+    if(pays)bits.push('pays:'+pays);
+    if(rhumT)bits.push('rhum:'+rhumT);
+    if(dist)bits.push('distill:'+dist);
+    if(prix)bits.push('prix:'+prix+'€');
+    if(score)bits.push('score:'+score+'/100');
+    if(dAch)bits.push('acheté:'+dAch);
+    if(apD&&apF)bits.push('apogée:'+apD+'-'+apF);
+    return `  ${j.date||'?'} "${nom}" · ${bits.join(' · ')} (${enCave})${noteStr}${cmt}${idRef}`;
   });
   // Stats rapides
   const notes=J.map(j=>+j.note).filter(n=>!isNaN(n)&&n>0);
