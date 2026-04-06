@@ -204,10 +204,13 @@ app.patch('/api/data', requireAuth, async (req, res) => {
       current.caves = current.caves.filter(c => !deletedCaveIds.includes(c.id));
 
     if (Array.isArray(journal) && journal.length) {
-      // Déduplication par ID : évite les entrées en double si PATCH envoyé deux fois
-      const existingIds = new Set((current.journal || []).map(j => String(j.id)));
-      const newEntries = journal.filter(j => !existingIds.has(String(j.id)));
-      current.journal = [...(current.journal || []), ...newEntries];
+      // Upsert par ID : met à jour les entrées existantes (ex: édition motif/commentaire d'une sortie)
+      // et ajoute les nouvelles, sans créer de doublons.
+      journal.forEach(j => {
+        const idx = current.journal.findIndex(x => String(x.id) === String(j.id));
+        if (idx >= 0) current.journal[idx] = j;
+        else current.journal.push(j);
+      });
     }
 
     if (meta) {
