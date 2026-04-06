@@ -4164,7 +4164,8 @@ function buildCaveContextForAI(){
 // Inclut TOUS les enregistrements, même pour vins qui ne sont plus en cave
 function buildJournalContextForAI(){
   // Le Sommelier IA n'analyse QUE les dégustations (avec note), pas les sorties simples
-  const J=(db.journal||[]).filter(j=>j.type==='degustation');
+  // Inclusif : type='degustation' OU type manquant (entrées legacy) OU présence d'une note > 0
+  const J=(db.journal||[]).filter(j=>j.type==='degustation'||(!j.type&&+j.note>0)||(j.type!=='sortie'&&+j.note>0));
   if(!J.length)return 'Aucune dégustation enregistrée.';
   // Index rapide vin par id (vins encore en cave)
   const wineById={};
