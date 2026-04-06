@@ -559,6 +559,10 @@ div[onclick], span[onclick]{
         style="width:100%;padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#8B1A2E,#C23052);color:#fff;font-size:16px;font-weight:600;font-family:'Outfit',sans-serif;cursor:pointer;box-shadow:0 4px 16px rgba(194,48,82,.4);">
         Se connecter
       </button>
+      <button onclick="lwClearCache()"
+        style="width:100%;margin-top:10px;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:rgba(255,255,255,.75);font-size:12px;font-family:'Outfit',sans-serif;cursor:pointer;">
+        🧹 Effacer le cache du navigateur
+      </button>
     </div>
 
     <!-- Panneau mot de passe oublié -->
@@ -1287,6 +1291,38 @@ function lwError(msg){
 }
 
 // — Mot de passe oublié (Login Wall) —
+// Efface tout le cache navigateur lié à CAVAVIN (localStorage, sessionStorage, IndexedDB, Cache API, Service Workers)
+async function lwClearCache(){
+  if(!confirm('Effacer tout le cache local de CAVAVIN sur ce navigateur ?\n\nCela supprimera :\n• Les données stockées localement (localStorage)\n• Les sessions\n• Les caches d\'application\n\nVos données en ligne (compte Aiven) ne sont PAS touchées.'))return;
+  try{
+    // 1) localStorage — ne supprimer que les clés de l'appli (préfixe cavavin_ ou cavedb ou commençant par nos préfixes connus)
+    const keysToRemove=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(!k)continue;
+      if(k.startsWith('cavavin_')||k.startsWith('cavedb')||k.startsWith('cavavin-')||k==='apiKey'||k==='apiUrl'||k==='jwtToken'||k==='currentUser')keysToRemove.push(k);
+    }
+    keysToRemove.forEach(k=>localStorage.removeItem(k));
+    // 2) sessionStorage — purge complète (limitée à l'onglet)
+    try{sessionStorage.clear();}catch(_){}
+    // 3) IndexedDB
+    try{
+      if(indexedDB&&indexedDB.databases){
+        const dbs=await indexedDB.databases();
+        await Promise.all((dbs||[]).map(d=>new Promise(res=>{try{const req=indexedDB.deleteDatabase(d.name);req.onsuccess=req.onerror=req.onblocked=()=>res();}catch(_){res();}})));
+      }
+    }catch(_){}
+    // 4) Cache API (PWA)
+    try{if(window.caches){const names=await caches.keys();await Promise.all(names.map(n=>caches.delete(n)));}}catch(_){}
+    // 5) Service Workers
+    try{if(navigator.serviceWorker){const regs=await navigator.serviceWorker.getRegistrations();await Promise.all(regs.map(r=>r.unregister()));}}catch(_){}
+    alert('✅ Cache effacé. La page va se recharger.');
+    location.reload(true);
+  }catch(e){
+    alert('⚠️ Erreur pendant l\'effacement : '+(e.message||e));
+  }
+}
+
 function lwShowForgot(){
   document.getElementById('lw-login').style.display='none';
   document.getElementById('lw-reset-ok').style.display='none';
@@ -2118,53 +2154,27 @@ async function initStatsToday(countInput){
   if(currentPage==='settings')renderSettings();
 }
 
-// Recalcule les entrées depuis les IDs de vins (wine.id = Date.now() au moment de l'ajout)
+// Purge les anciennes stats stockées (démo/obsolètes) et force un re-render.
+// Le graphique Accueil est désormais calculé en direct depuis db.wines (addedAt) et db.journal,
+// donc il n'y a plus de "recalcul" à faire — il suffit de vider le cache pollué et de rafraîchir.
 async function recalcStatsFromWines(){
-  if(!confirm('Recalculer les entrées depuis la date d\'ajout de chaque bouteille ?\nLes entrées sont reconstruites depuis les horodatages d\'ajout. Les sorties sont conservées.'))return;
-  const saved=db.statsAnnuelles||{};
-  // Conserver les sorties existantes
-  const newStats={};
-  for(const [yr,months] of Object.entries(saved)){
-    newStats[yr]={};
-    for(const [mo,data] of Object.entries(months)){
-      newStats[yr][mo]={e:0,s:data.s||0};
-    }
-  }
-  // Bornes temporelles valides : 2015 → aujourd'hui+1 (filtre les IDs non-timestamp)
-  const MIN_TS=new Date('2015-01-01').getTime();
-  const MAX_TS=Date.now()+86400000;
-  let counted=0;
-  db.wines.forEach(w=>{
-    try{
-      // Priorité : addedAt (ISO string) → ID (timestamp ms)
-      let d=null;
-      if(w.addedAt){const t=new Date(w.addedAt).getTime();if(t>=MIN_TS&&t<=MAX_TS)d=new Date(w.addedAt);}
-      if(!d){const ts=Number(w.id);if(ts&&ts>=MIN_TS&&ts<=MAX_TS)d=new Date(ts);}
-      if(!d)return;
-      const yr=d.getFullYear().toString();
-      const mo=(d.getMonth()+1).toString().padStart(2,'0');
-      if(!newStats[yr])newStats[yr]={};
-      if(!newStats[yr][mo])newStats[yr][mo]={e:0,s:0};
-      newStats[yr][mo].e++;counted++;
-    }catch(_){}
-  });
-  if(!counted){
-    showToast('⚠️ Aucun vin avec ID horodaté — utilisez "Forcer entrées" à la place');
-    return;
-  }
-  db.statsAnnuelles=newStats;
-  try{localStorage.setItem('cavavin_stats_bak',JSON.stringify(db.statsAnnuelles));}catch(_){}
-  localStorage.setItem(lsKey(),JSON.stringify(db));
+  if(!confirm('Purger les anciennes statistiques stockées (résidus de démo) et rafraîchir le graphique ?\nLes entrées et sorties seront recalculées en direct depuis les vraies données.'))return;
+  db.statsAnnuelles={};
+  try{localStorage.removeItem('cavavin_stats_bak');}catch(_){}
+  try{localStorage.setItem(lsKey(),JSON.stringify(db));}catch(_){}
   _syncSnapshotStats=JSON.stringify(db.statsAnnuelles);
-  // Sync immédiate vers le serveur
+  // Sync immédiate vers le serveur (efface les stats côté base)
   if(_jwtToken&&currentUser&&!isDemo){
     try{
-      const payload={meta:{nCave:db.nCave,nWine:db.nWine,statsAnnuelles:db.statsAnnuelles}};
+      const payload={meta:{nCave:db.nCave,nWine:db.nWine,statsAnnuelles:{}}};
       await fetch(`${API_URL}/api/data`,{method:'PATCH',headers:authHeaders(),body:JSON.stringify(payload)});
     }catch(_){}
   }
-  if(currentPage==='supercave'){renderSupercave();showToast(`✅ ${counted} entrées reconstruites`);}
-  else{showToast(`✅ ${counted} entrées recalculées et sauvegardées en base`);}
+  // Nombre de vins effectivement affichés dans le chart (année courante, addedAt valide)
+  const curY=new Date().getFullYear();
+  const counted=(db.wines||[]).filter(w=>{if(!w.addedAt)return false;const d=new Date(w.addedAt);return !isNaN(d)&&d.getFullYear()===curY;}).length;
+  if(currentPage==='supercave')renderSupercave();
+  showToast(`✅ Graphique rafraîchi — ${counted} entrée(s) ${curY} détectée(s)`);
 }
 
 // Reconstruit les SORTIES depuis le journal : vins dans le journal mais plus dans la cave
@@ -5938,16 +5948,9 @@ function renderSettings(){
   const statsSection=`
     <div style="background:var(--white);border-radius:12px;padding:16px;box-shadow:var(--shadow-s);margin-bottom:12px;">
       <div style="font-size:12px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📊 Stats mouvements</div>
-      <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5;">Reconstruire les entrées/sorties du graphique Accueil si elles ont été perdues. Les entrées se reconstruisent depuis les dates d'ajout des bouteilles, les sorties depuis le journal.</div>
-      <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:14px;">
-        <button class="btn btn-secondary" onclick="recalcStatsFromWines()" style="width:100%;font-size:12px;">🔄 Reconstruire les entrées (depuis dates d'ajout)</button>
-        <button class="btn btn-secondary" onclick="recalcSortiesFromJournal()" style="width:100%;font-size:12px;">🔄 Reconstruire les sorties (depuis journal)</button>
-      </div>
-      <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Forcer le nombre d'entrées ce mois-ci</div>
-      <div style="font-size:11px;color:var(--ink3);margin-bottom:8px;">Si les données de départ du mois manquent, saisir manuellement le total d'entrées pour le mois en cours.</div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <input id="init-stats-count" type="number" min="0" max="9999" placeholder="ex: 42" class="form-input" style="flex:1;font-size:14px;text-align:center;">
-        <button class="btn btn-primary" onclick="initStatsToday(document.getElementById('init-stats-count').value)" style="flex:1;font-size:12px;">✅ Forcer entrées ce mois</button>
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5;">Le graphique Accueil est désormais calculé <b>en direct</b> depuis les dates d'ajout des bouteilles (entrées) et le journal (sorties). Si des chiffres fantômes persistent (résidus de démo), purgez l'ancien cache.</div>
+      <div style="display:flex;flex-direction:column;gap:7px;">
+        <button class="btn btn-secondary" onclick="recalcStatsFromWines()" style="width:100%;font-size:12px;">🧹 Purger les anciennes stats & rafraîchir</button>
       </div>
     </div>`;
   const backupSection=`
@@ -6656,15 +6659,12 @@ function renderSupercave(){
   // Sorties : depuis db.journal (TOUS types : dégustation + sortie simple = sortie de cave)
   const monthLabels=['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
   const chartData=monthLabels.map(()=>({e:0,s:0}));
-  // Entrées
+  // Entrées : uniquement via addedAt (horodatage réel d'ajout en cave)
+  // Les IDs sont des compteurs (nWine++), pas des timestamps. dateAchat = date d'achat utilisateur ≠ date d'entrée en cave.
   (db.wines||[]).forEach(w=>{
-    let d=null;
-    // 1) wine.id est un timestamp (Date.now) pour les vins ajoutés récemment
-    if(w.id&&typeof w.id==='number'&&w.id>1e12){d=new Date(w.id);}
-    // 2) fallback : dateAchat (format YYYY-MM-DD ou YYYY)
-    else if(w.dateAchat){const s=String(w.dateAchat);if(/^\d{4}-\d{2}/.test(s))d=new Date(s);}
-    if(!d||isNaN(d))return;
-    if(d.getFullYear()!==year)return;
+    if(!w.addedAt)return;
+    const d=new Date(w.addedAt);
+    if(isNaN(d)||d.getFullYear()!==year)return;
     chartData[d.getMonth()].e++;
   });
   // Sorties : toutes les entrées du journal (dégustation + sortie simple)
