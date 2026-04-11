@@ -1103,19 +1103,14 @@ div[onclick], span[onclick]{
       </select>
       <textarea id="j-sortie-cmt" class="form-input" style="min-height:60px;resize:vertical;margin-top:8px;" placeholder="Commentaire optionnel..."></textarea>
     </div>
-    <div class="form-group" id="j-rm-group">
-      <div id="j-rm-row" onclick="toggleJRm()" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:10px 12px;background:#f5ede8;border-radius:10px;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none;">
-        <span style="font-size:14px;color:#3a1a0a;pointer-events:none;">🍾 Retirer le vin après dégustation</span>
-        <span id="j-rm-toggle" style="display:inline-block;width:44px;height:26px;border-radius:13px;background:#ccc;position:relative;transition:background .2s;flex-shrink:0;pointer-events:none;">
-          <span style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:white;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.3);pointer-events:none;"></span>
-        </span>
-        <input type="checkbox" id="j-rm" style="display:none;">
-      </div>
+    <div style="background:#f5ede8;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#3a1a0a;display:flex;align-items:center;gap:6px;" id="j-auto-remove-info">
+      <span>🍾</span><span>La bouteille sera automatiquement retirée de la cave</span>
     </div>
     <div style="display:flex;gap:8px;">
       <button class="btn btn-secondary" style="flex:1;" onclick="closeOv('ov-journal')">Annuler</button>
       <button class="btn btn-primary" style="flex:1;" onclick="saveJournal()">Enregistrer</button>
     </div>
+    <button id="j-delete-btn" onclick="deleteJournalEntry()" style="display:none;width:100%;margin-top:10px;padding:10px;border-radius:10px;border:1px dashed #dc2626;background:transparent;color:#dc2626;font-size:12px;cursor:pointer;">🗑️ Supprimer cette entrée du journal</button>
   </div>
 </div>
 
@@ -3829,13 +3824,7 @@ function renderJournal(){
   list.innerHTML=uniqueJournal.map(j=>{
     const jType=j.type||'degustation';
     const isSortie=jType==='sortie';
-    const stillInCave=db.wines.some(w=>w.id===j.wineId);
     const wFull=db.wines.find(w=>w.id===j.wineId);
-    const rmBtn=isSortie
-      ?`<div style="margin-top:8px;font-size:11px;color:var(--ink3);display:flex;align-items:center;gap:4px;"><span>📦</span>Sortie de cave</div>`
-      :(stillInCave
-        ?`<button onclick="retireBottleFromJournal(${j.id},${j.wineId})" style="margin-top:8px;width:100%;background:transparent;border:1px dashed #dc2626;border-radius:8px;padding:6px 10px;font-size:12px;color:#dc2626;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;"><span>🍾</span>Retirer de la cave</button>`
-        :`<div style="margin-top:8px;font-size:11px;color:var(--ink3);display:flex;align-items:center;gap:4px;"><span>✅</span>Bouteille retirée de la cave</div>`);
     const couleur=wFull?.couleur||j.couleur||null;
     const couleurDot=couleur?`<span class="wc-dot ${couleur}" style="width:8px;height:8px;flex-shrink:0;"></span>`:'';
     const nomLine=wFull?wFull.nom:(j.wineName||'');
@@ -3868,7 +3857,6 @@ function renderJournal(){
       ${!isSortie&&j.note?`<div class="stars">${'⭐'.repeat(j.note)}</div>`:''}
       ${motifLine}
       ${j.cmt?`<div style="font-size:13px;color:var(--ink2);margin-top:4px;font-style:italic">"${j.cmt}"</div>`:''}
-      ${rmBtn}
     </div>`;
   }).join('');
 }
@@ -3924,7 +3912,8 @@ function openJournalModal(entry, type){
   document.getElementById('j-vin').innerHTML=db.wines.map(w=>`<option value="${w.id}">${w.nom}${w.millesime?' '+w.millesime:''}</option>`).join('');
   const degFields=document.getElementById('j-degustation-fields');
   const sortieFields=document.getElementById('j-sortie-reason');
-  const rmGroup=document.getElementById('j-rm-group');
+  const autoRemInfo=document.getElementById('j-auto-remove-info');
+  const delBtn=document.getElementById('j-delete-btn');
   if(entry){
     // mode édition
     const eType=entry.type||'degustation';
@@ -3947,24 +3936,19 @@ function openJournalModal(entry, type){
     const html=_buildJVinDetailsHTML(detailsSrc);
     if(html){box.innerHTML=html;box.style.display='';}else{box.style.display='none';}
     if(eType==='degustation'){
-      degFields.style.display='';sortieFields.style.display='none';rmGroup.style.display='';
+      degFields.style.display='';sortieFields.style.display='none';
       document.getElementById('j-note').value=entry.note||3;
       document.getElementById('j-note-display').textContent='⭐'.repeat(entry.note||3);
       document.getElementById('j-cmt').value=entry.cmt||'';
     }else{
-      degFields.style.display='none';sortieFields.style.display='';rmGroup.style.display='none';
+      degFields.style.display='none';sortieFields.style.display='';
       document.getElementById('j-motif').value=entry.motif||'';
       document.getElementById('j-sortie-cmt').value=entry.cmt||'';
     }
-    resetJRmToggle();
     document.getElementById('j-vin').disabled=true;
-    const bottleExists=!!db.wines.find(x=>x.id===entry.wineId);
-    const rmRow=document.getElementById('j-rm-row');
-    if(!bottleExists){
-      rmRow.style.opacity='0.4';rmRow.style.pointerEvents='none';rmRow.title='Bouteille déjà retirée de la cave';
-    }else{
-      rmRow.style.opacity='1';rmRow.style.pointerEvents='';rmRow.title='';
-    }
+    autoRemInfo.style.display='none'; // masquer en édition (bouteille déjà retirée)
+    // Bouton supprimer visible uniquement pour l'admin
+    delBtn.style.display=isAdmin?'':'none';
   }else{
     const t=type||'degustation';
     document.getElementById('j-type').value=t;
@@ -3982,16 +3966,31 @@ function openJournalModal(entry, type){
     if(sel.options.length>0)sel.selectedIndex=0;
     document.getElementById('j-vin').disabled=false;
     updateJVinDetails();
-    resetJRmToggle();
+    autoRemInfo.style.display=''; // afficher l'info retrait auto en création
+    delBtn.style.display='none'; // pas de suppression en création
     if(t==='sortie'){
-      degFields.style.display='none';sortieFields.style.display='';rmGroup.style.display='none';
+      degFields.style.display='none';sortieFields.style.display='';
     }else{
-      degFields.style.display='';sortieFields.style.display='none';rmGroup.style.display='';
-      const rmRow=document.getElementById('j-rm-row');
-      rmRow.style.opacity='1';rmRow.style.pointerEvents='';rmRow.title='';
+      degFields.style.display='';sortieFields.style.display='none';
     }
   }
   openOv('ov-journal');
+}
+
+// Suppression d'une entrée journal (admin uniquement)
+function deleteJournalEntry(){
+  if(!isAdmin){showToast('⚠️ Réservé à l\'admin');return;}
+  const editId=parseInt(document.getElementById('j-edit-id').value);
+  if(!editId){showToast('⚠️ Aucune entrée sélectionnée');return;}
+  const entry=db.journal.find(j=>j.id===editId);
+  if(!entry){showToast('⚠️ Entrée introuvable');return;}
+  const label=entry.wineName||entry.nom||'?';
+  const typeLabel=entry.type==='sortie'?'sortie':'dégustation';
+  if(!confirm(`Supprimer définitivement cette ${typeLabel} ?\n\n"${label}" du ${entry.date||'?'}\n\n⚠️ La bouteille ne sera PAS remise en cave.`))return;
+  db.journal=db.journal.filter(j=>j.id!==editId);
+  dbSave();closeOv('ov-journal');document.getElementById('j-vin').disabled=false;
+  renderJournal();
+  showToast(`🗑️ ${typeLabel.charAt(0).toUpperCase()+typeLabel.slice(1)} supprimée`);
 }
 
 function saveJournal(){
@@ -4037,15 +4036,14 @@ function saveJournal(){
       baseEntry.motif=document.getElementById('j-motif').value;
       baseEntry.cmt=document.getElementById('j-sortie-cmt').value.trim();
       baseEntry.note=0;
-      // Sortie simple → retrait automatique de la cave (photo effacée)
-      _removeBottle(wineId);
     }else{
       baseEntry.note=parseInt(document.getElementById('j-note').value);
       baseEntry.cmt=document.getElementById('j-cmt').value.trim();
-      if(document.getElementById('j-rm').checked)_removeBottle(wineId);
     }
+    // Retrait AUTOMATIQUE de la cave (dégustation ou sortie = bouteille sortie)
+    _removeBottle(wineId);
     db.journal.push(baseEntry);
-    dbSave();closeOv('ov-journal');resetJRmToggle();renderJournal();renderCavePage();
+    dbSave();closeOv('ov-journal');renderJournal();renderCavePage();
     showToast(jType==='sortie'?'📦 Bouteille sortie de la cave !':'📔 Dégustation enregistrée !');
   }
 }
