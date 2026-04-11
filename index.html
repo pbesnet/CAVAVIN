@@ -934,10 +934,6 @@ div[onclick], span[onclick]{
       <!-- PAGE: JOURNAL -->
       <div id="page-journal" class="page">
         <div style="padding:16px;">
-          <div style="display:flex;gap:8px;margin-bottom:16px;">
-            <button class="btn btn-primary" style="flex:1;" onclick="openJournalModal(null,'degustation')">🍷 Dégustation</button>
-            <button class="btn btn-secondary" style="flex:1;" onclick="openJournalModal(null,'sortie')">📦 Sortie simple</button>
-          </div>
           <div id="journal-list"></div>
         </div>
       </div>
@@ -1295,7 +1291,7 @@ async function lwClearCache(){
     for(let i=0;i<localStorage.length;i++){
       const k=localStorage.key(i);
       if(!k)continue;
-      if(k.startsWith('cavavin_')||k.startsWith('cavedb')||k.startsWith('cavavin-')||k==='apiKey'||k==='apiUrl'||k==='jwtToken'||k==='currentUser')keysToRemove.push(k);
+      if(k.startsWith('cavavin_')||k.startsWith('cavedb')||k.startsWith('cavavin-')||k==='apiKey'||k==='apiUrl'||k==='jwtToken'||k==='currentUser'||k==='cavavin_journal_deleted')keysToRemove.push(k);
     }
     keysToRemove.forEach(k=>localStorage.removeItem(k));
     // 2) sessionStorage — purge complète (limitée à l'onglet)
@@ -1477,7 +1473,10 @@ async function loadSharedData(){
         }
       }
       // Fusionner journal : ajouter les entrées locales absentes du serveur
+      // MAIS exclure les entrées explicitement supprimées par l'admin
       if(!db.journal)db.journal=[];
+      let deletedIds=new Set();
+      try{const d=JSON.parse(localStorage.getItem('cavavin_journal_deleted')||'[]');d.forEach(id=>deletedIds.add(id));}catch(_){}
       // Fusionner journal local + backup journal
       let allLocalJournal=[...localJournal];
       try{
@@ -1488,8 +1487,12 @@ async function loadSharedData(){
           jBakArr.forEach(j=>{if(!inMain.has(String(j.id)))allLocalJournal.push(j);});
         }
       }catch(_){}
+      // Filtrer les entrées supprimées avant fusion
+      allLocalJournal=allLocalJournal.filter(j=>!deletedIds.has(j.id));
       const remoteJIds=new Set(db.journal.map(j=>String(j.id)));
       allLocalJournal.forEach(j=>{if(!remoteJIds.has(String(j.id)))db.journal.push(j);});
+      // Nettoyer aussi le journal distant des entrées supprimées localement
+      db.journal=db.journal.filter(j=>!deletedIds.has(j.id));
       // Sauvegarder en local (version allégée si quota)
       try{localStorage.setItem('cavedb', JSON.stringify(db));}catch(_){
         try{const lite={...db,wines:db.wines.map(w=>{const{photo,...r}=w;return r;})};localStorage.setItem('cavedb',JSON.stringify(lite));}catch(_2){}
@@ -3827,9 +3830,11 @@ function renderJournal(){
     const wFull=db.wines.find(w=>w.id===j.wineId);
     const couleur=wFull?.couleur||j.couleur||null;
     const couleurDot=couleur?`<span class="wc-dot ${couleur}" style="width:8px;height:8px;flex-shrink:0;"></span>`:'';
-    const nomLine=wFull?wFull.nom:(j.wineName||'');
+    const nomLine=wFull?wFull.nom:(j.nom||j.wineName||'');
     const millesime=wFull?.millesime||j.millesime||'';
     const producteur=wFull?.producteur||j.producteur||'';
+    const appellation=wFull?.appellation||j.appellation||'';
+    const region=wFull?.region||j.region||'';
     const wForMat=wFull||(j.apogeeDebut&&j.apogeeFin?{apogeeDebut:j.apogeeDebut,apogeeFin:j.apogeeFin}:null);
     const matDot=wForMat?maturiteDot(wForMat):'';
     // Badge type
@@ -3839,6 +3844,11 @@ function renderJournal(){
     // Motif pour sortie
     const motifLabels={offert:'🎁 Offert',cuisine:'🍳 Cuisine',casse:'💔 Cassé / Abîmé',autre:'📝 Autre'};
     const motifLine=isSortie&&j.motif?`<div style="font-size:12px;color:#E67E22;margin-top:4px;">${motifLabels[j.motif]||j.motif}</div>`:'';
+    // Sous-ligne détails : appellation · région
+    const detailParts=[];
+    if(appellation)detailParts.push(appellation);
+    if(region)detailParts.push(region);
+    const detailLine=detailParts.length?`<div style="font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${detailParts.join(' · ')}</div>`:'';
     return `<div class="jc" style="${isSortie?'border-left:3px solid #E67E22;':'border-left:3px solid #8E2443;'}">
       <div class="jh">
         <div style="display:flex;align-items:center;gap:5px;min-width:0;flex:1;margin-right:8px;">
@@ -3846,6 +3856,7 @@ function renderJournal(){
           <div style="min-width:0;">
             <div class="jw" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nomLine}${millesime?` <span style="font-weight:400;color:var(--ink2);">${millesime}</span>`:''} ${matDot}</div>
             ${producteur?`<div style="font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${producteur}</div>`:''}
+            ${detailLine}
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
@@ -3988,6 +3999,14 @@ function deleteJournalEntry(){
   const typeLabel=entry.type==='sortie'?'sortie':'dégustation';
   if(!confirm(`Supprimer définitivement cette ${typeLabel} ?\n\n"${label}" du ${entry.date||'?'}\n\n⚠️ La bouteille ne sera PAS remise en cave.`))return;
   db.journal=db.journal.filter(j=>j.id!==editId);
+  // Mémoriser les IDs supprimés pour éviter que la fusion au login ne les réinjecte
+  try{
+    const deleted=JSON.parse(localStorage.getItem('cavavin_journal_deleted')||'[]');
+    deleted.push(editId);
+    localStorage.setItem('cavavin_journal_deleted',JSON.stringify(deleted));
+  }catch(_){}
+  // Mettre à jour immédiatement le backup journal
+  try{localStorage.setItem('cavavin_journal_bak',JSON.stringify((db.journal||[]).slice(-50)));}catch(_){}
   dbSave();closeOv('ov-journal');document.getElementById('j-vin').disabled=false;
   renderJournal();
   showToast(`🗑️ ${typeLabel.charAt(0).toUpperCase()+typeLabel.slice(1)} supprimée`);
@@ -6599,31 +6618,38 @@ async function refreshRecoWE(auto=false){
     const avgTemp=Math.round(weather.reduce((s,d)=>s+d.max,0)/weather.length);
     const isRainy=weather.some(d=>d.precip>50),isWarm=avgTemp>22,isCold=avgTemp<10;
     const wxSummary=weather.map(d=>`${d.label} ${d.icon} ${d.max}°/${d.min}°C pluie ${d.precip}%`).join(' | ');
-    // 4. Contexte cave pour l'IA
+    // 4. Contexte cave pour l'IA — avec info lieu de chaque cave pour proximité
+    const cavesInfo=db.caves.map(c=>`Cave "${c.name}"${c.lieu?' (lieu: '+c.lieu+')':''} [ID cave:${c.id}] — ${winesOfCave(c.id).length} bouteilles`).join('\n');
     const wVin=db.wines.filter(w=>w.couleur!=='rhum'&&w.millesime);
-    const candidats=wVin.map(w=>({...w,mat:maturiteStatus(w)})).sort((a,b)=>{const o={apogee:0,debut_apogee:1,declin:2,maturation:3};return(o[a.mat]??4)-(o[b.mat]??4);}).slice(0,30);
-    const rhumsCtx=db.wines.filter(w=>w.couleur==='rhum').slice(0,20);
-    const vinCtx=candidats.map(w=>`[ID:${w.id}] ${w.nom} ${w.millesime}${w.region?', '+w.region:''}${w.appellation?', '+w.appellation:''}${w.producteur?' ('+w.producteur+')':''} | pos:${_winePos(w)} | ${w.mat} | ${w.prix||0}€`).join('\n');
-    const rhumCtx=rhumsCtx.map(r=>`[ID:${r.id}] ${r.nom}${r.millesime?' '+r.millesime:''}${r.distillerie?', '+r.distillerie:''}${r.pays?', '+r.pays:''}${r.degre?', '+r.degre+'°':''} | pos:${_winePos(r)}`).join('\n');
+    const candidats=wVin.map(w=>({...w,mat:maturiteStatus(w),caveName:(db.caves.find(c=>c.id===w.caveId)||{}).name||'?',caveLieu:(db.caves.find(c=>c.id===w.caveId)||{}).lieu||''})).sort((a,b)=>{const o={apogee:0,debut_apogee:1,declin:2,maturation:3};return(o[a.mat]??4)-(o[b.mat]??4);}).slice(0,30);
+    const rhumsCtx=db.wines.filter(w=>w.couleur==='rhum').map(r=>({...r,caveName:(db.caves.find(c=>c.id===r.caveId)||{}).name||'?',caveLieu:(db.caves.find(c=>c.id===r.caveId)||{}).lieu||''})).slice(0,20);
+    const vinCtx=candidats.map(w=>`[ID:${w.id}] ${w.nom} ${w.millesime}${w.region?', '+w.region:''}${w.appellation?', '+w.appellation:''}${w.producteur?' ('+w.producteur+')':''} | cave:"${w.caveName}"${w.caveLieu?' ('+w.caveLieu+')':''} | pos:${_winePos(w)} | ${w.mat} | ${w.prix||0}€`).join('\n');
+    const rhumCtx=rhumsCtx.map(r=>`[ID:${r.id}] ${r.nom}${r.millesime?' '+r.millesime:''}${r.distillerie?', '+r.distillerie:''}${r.pays?', '+r.pays:''}${r.degre?', '+r.degre+'°':''} | cave:"${r.caveName}"${r.caveLieu?' ('+r.caveLieu+')':''} | pos:${_winePos(r)}`).join('\n');
     const prompt=`Tu es un expert sommelier et barman créatif. Weekend du ${wkd.label} à ${locationName} :
 MÉTÉO : ${wxSummary}
 Température moyenne ${avgTemp}°C${isRainy?' — temps pluvieux et cosy':isWarm?' — temps chaud et estival':isCold?' — temps froid hivernal':' — météo douce'}
 
-CAVE À VINS disponibles (triées maturité) :
+CAVES DE L'UTILISATEUR :
+${cavesInfo}
+
+LOCALISATION ACTUELLE : ${locationName} (${lat.toFixed(3)}°, ${lon.toFixed(3)}°)
+IMPORTANT : L'utilisateur passe le weekend à ${locationName}. Compare ce lieu avec le lieu de chaque cave. Privilégie les vins des caves situées au même endroit ou à proximité de ${locationName}. Si aucune cave n'est proche, choisis les meilleurs vins tous caves confondus.
+
+CAVE À VINS disponibles (triées maturité, avec cave d'origine et lieu) :
 ${vinCtx||'Aucun vin millésimé'}
 
 CAVE À RHUM :
 ${rhumCtx||'Aucun rhum'}
 
-MISSION : Recommande 2 vins et 1 rhum parfaitement adaptés à la météo. Favorise apogée et début_apogée. JSON strict uniquement :
-{"conseil_general":"<phrase poétique max 18 mots>","vins":[{"id":<n>,"raison":"<max 12 mots météo/maturité>","accord":"<plat idéal>","temp_service":"<ex: 16-18°C>"},{"id":<n>,"raison":"<max 12 mots>","accord":"<plat>","temp_service":"<temp>"}],"rhum":{"id":<n>,"cocktail":"<nom cocktail ou Pure dégustation>","recette":"<2-3 ingrédients>","raison":"<max 12 mots>"}}`;
+MISSION : Recommande 2 vins et 1 rhum parfaitement adaptés à la météo ET accessibles (cave la plus proche du lieu du weekend). Favorise apogée et début_apogée. JSON strict uniquement :
+{"conseil_general":"<phrase poétique max 18 mots>","cave_proche":"<nom de la cave la plus proche de ${locationName}>","vins":[{"id":<n>,"raison":"<max 12 mots météo/maturité>","accord":"<plat idéal>","temp_service":"<ex: 16-18°C>"},{"id":<n>,"raison":"<max 12 mots>","accord":"<plat>","temp_service":"<temp>"}],"rhum":{"id":<n>,"cocktail":"<nom cocktail ou Pure dégustation>","recette":"<2-3 ingrédients>","raison":"<max 12 mots>"}}`;
     const aiResp=await apiCall([{role:'user',content:prompt}],600);
     let reco;
     try{const m=aiResp.match(/\{[\s\S]*\}/);reco=JSON.parse(m[0]);}
     catch(e){throw new Error('Réponse IA invalide — réessaie');}
     // 5. Enrichir avec données réelles
     const enrich=item=>{if(!item)return null;const w=db.wines.find(x=>x.id===item.id);if(!w)return null;return{...item,nom:w.nom,millesime:w.millesime,couleur:w.couleur,region:w.region,mat:maturiteStatus(w)};};
-    db.recoWE={updatedAt:new Date().toISOString(),auto,location:locationName,lat,lon,weekend:wkd.label,weather,conseil:reco.conseil_general,vins:(reco.vins||[]).map(enrich).filter(Boolean),rhum:enrich(reco.rhum),loading:false,error:null};
+    db.recoWE={updatedAt:new Date().toISOString(),auto,location:locationName,lat,lon,weekend:wkd.label,weather,conseil:reco.conseil_general,caveProche:reco.cave_proche||null,vins:(reco.vins||[]).map(enrich).filter(Boolean),rhum:enrich(reco.rhum),loading:false,error:null};
     try{localStorage.setItem('cavavin_reco_we',JSON.stringify(db.recoWE));}catch(_){}
     dbSave();
   }catch(e){
@@ -6793,7 +6819,8 @@ function renderSupercave(){
             </div>`).join('')}
           </div>
           <!-- Conseil -->
-          <div style="font-family:'Cormorant Garamond',serif;font-size:14px;font-style:italic;color:var(--ink2);margin-bottom:11px;line-height:1.45;text-align:center;">"${reco.conseil}"</div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:14px;font-style:italic;color:var(--ink2);margin-bottom:6px;line-height:1.45;text-align:center;">"${reco.conseil}"</div>
+          ${reco.caveProche?`<div style="text-align:center;font-size:11px;color:var(--ink3);margin-bottom:11px;">📍 Cave recommandée : <b>${reco.caveProche}</b></div>`:''}
           <!-- Vins -->
           ${(reco.vins||[]).map(v=>`
           <div onclick="showDetail(${v.id})" style="display:flex;align-items:center;gap:9px;background:var(--paper2);border-radius:9px;padding:9px 11px;margin-bottom:6px;cursor:pointer;border-left:3px solid var(--rouge);" onmouseover="this.style.background='var(--paper3)'" onmouseout="this.style.background='var(--paper2)'">
