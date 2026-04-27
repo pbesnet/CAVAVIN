@@ -940,6 +940,10 @@ div[onclick], span[onclick]{
       <!-- PAGE: JOURNAL -->
       <div id="page-journal" class="page">
         <div style="padding:16px;">
+          <div style="position:relative;margin-bottom:12px;">
+            <input id="journal-search" type="text" placeholder="🔍 Rechercher un vin, producteur, appellation…" oninput="renderJournal()" style="width:100%;padding:10px 36px 10px 14px;border:1.5px solid var(--border);border-radius:12px;background:var(--white);font-size:13px;font-family:'Outfit',sans-serif;color:var(--ink);outline:none;box-sizing:border-box;">
+            <button id="journal-search-clear" onclick="document.getElementById('journal-search').value='';renderJournal();" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:var(--paper2);border:none;border-radius:50%;width:26px;height:26px;font-size:13px;cursor:pointer;color:var(--ink2);display:none;">✕</button>
+          </div>
           <div id="journal-list"></div>
         </div>
       </div>
@@ -3831,10 +3835,41 @@ function fabTouchEnd(e){
 // ═══════════════════════════════════════════
 function renderJournal(){
   const list=document.getElementById('journal-list');
-  if(!db.journal.length){list.innerHTML=`<div class="empty"><div class="empty-icon">📔</div><div>Aucune sortie enregistrée</div></div>`;return;}
+  if(!db.journal.length){list.innerHTML=`<div class="empty"><div class="empty-icon">📔</div><div>Aucune sortie enregistrée</div></div>`;
+    const _clr=document.getElementById('journal-search-clear');if(_clr)_clr.style.display='none';
+    return;
+  }
   // Déduplication par ID (évite les doublons dus à une double-sync)
   const seen=new Set();
-  const uniqueJournal=[...db.journal].reverse().filter(j=>{if(seen.has(j.id))return false;seen.add(j.id);return true;});
+  let uniqueJournal=[...db.journal].reverse().filter(j=>{if(seen.has(j.id))return false;seen.add(j.id);return true;});
+  // ── Filtre recherche : nom, producteur, appellation, région, millésime, motif ──
+  const searchEl=document.getElementById('journal-search');
+  const q=(searchEl?.value||'').trim().toLowerCase();
+  const clrBtn=document.getElementById('journal-search-clear');
+  if(clrBtn)clrBtn.style.display=q?'block':'none';
+  if(q){
+    uniqueJournal=uniqueJournal.filter(j=>{
+      const wFull=db.wines.find(w=>w.id===j.wineId);
+      const fields=[
+        wFull?.nom||j.nom||j.wineName||'',
+        wFull?.producteur||j.producteur||'',
+        wFull?.appellation||j.appellation||'',
+        wFull?.region||j.region||'',
+        wFull?.pays||j.pays||'',
+        wFull?.millesime||j.millesime||'',
+        wFull?.couleur||j.couleur||'',
+        wFull?.rhumType||j.rhumType||'',
+        wFull?.distillerie||j.distillerie||'',
+        j.cmt||'',
+        j.motif||''
+      ];
+      return fields.some(f=>String(f).toLowerCase().includes(q));
+    });
+  }
+  if(!uniqueJournal.length){
+    list.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div><div>Aucun résultat pour "${q.replace(/"/g,'&quot;')}"</div></div>`;
+    return;
+  }
   list.innerHTML=uniqueJournal.map(j=>{
     const jType=j.type||'degustation';
     const isSortie=jType==='sortie';
@@ -3942,20 +3977,25 @@ function openJournalModal(entry, type){
     document.getElementById('j-type').value=eType;
     document.getElementById('j-edit-id').value=entry.id;
     document.getElementById('j-modal-title').textContent=eType==='sortie'?'Modifier la sortie':'Modifier la dégustation';
-    // Si la bouteille n'est plus en cave, ajouter une option virtuelle pour l'afficher
+    // En édition, on FORCE l'affichage à correspondre au snapshot stocké dans l'entrée journal,
+    // sans dépendre de db.wines (un id de bouteille peut avoir été réutilisé par un autre vin
+    // après retrait/ré-import — sinon le mauvais vin s'affiche dans la liste et la description).
+    // Le select est de toute façon désactivé en édition (la bouteille n'est plus modifiable).
+    const sel=document.getElementById('j-vin');
+    sel.innerHTML='';
     const wStill=db.wines.find(x=>x.id===entry.wineId);
-    if(!wStill){
-      const opt=document.createElement('option');
-      opt.value=entry.wineId;
-      opt.textContent=`${entry.wineName||entry.nom||'?'} (retiré)`;
-      document.getElementById('j-vin').appendChild(opt);
-    }
-    document.getElementById('j-vin').value=entry.wineId;
+    const snapNom=entry.nom||entry.wineName||'?';
+    const snapMill=entry.millesime?' '+entry.millesime:'';
+    const opt=document.createElement('option');
+    opt.value=entry.wineId;
+    opt.textContent=`${snapNom}${snapMill}${wStill?'':' (retiré)'}`;
+    sel.appendChild(opt);
+    sel.value=entry.wineId;
     document.getElementById('j-date').value=entry.date;
-    // Détails vin : priorité à l'objet en cave, sinon fallback sur les champs sauvegardés dans l'entrée
-    const detailsSrc=wStill||entry;
+    // Détails vin : on utilise TOUJOURS le snapshot de l'entrée (état au moment de la sortie/dégustation),
+    // pas db.wines (qui peut avoir un autre vin sur le même id)
     const box=document.getElementById('j-vin-details');
-    const html=_buildJVinDetailsHTML(detailsSrc);
+    const html=_buildJVinDetailsHTML(entry);
     if(html){box.innerHTML=html;box.style.display='';}else{box.style.display='none';}
     if(eType==='degustation'){
       degFields.style.display='';sortieFields.style.display='none';
