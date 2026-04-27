@@ -482,6 +482,12 @@ div[onclick], span[onclick]{
 .chat-icon-btn:active{background:var(--border);}
 #chat-send-btn{width:38px;height:38px;border-radius:50%;border:none;background:linear-gradient(135deg,#8B1A2E,#C23052);color:#fff;cursor:pointer;flex-shrink:0;font-size:17px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(139,26,46,0.35);transition:transform .12s;}
 #chat-send-btn:active{transform:scale(.9);}
+.cb-copy{margin-top:8px;border:none;background:var(--paper2);color:var(--ink2);border-radius:14px;padding:4px 10px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-family:'Outfit',sans-serif;}
+.cb-copy:active{background:var(--border);}
+#chat-img-preview,#cave-chat-img-preview{display:none;align-items:center;gap:8px;background:var(--paper2);border-radius:10px;padding:6px 8px;margin-bottom:6px;max-width:100%;}
+#chat-img-preview img,#cave-chat-img-preview img{height:40px;width:40px;object-fit:cover;border-radius:6px;flex-shrink:0;}
+#chat-img-preview .lbl,#cave-chat-img-preview .lbl{font-size:11px;color:var(--ink2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#chat-img-preview .x,#cave-chat-img-preview .x{background:var(--white);border:none;border-radius:50%;width:22px;height:22px;font-size:14px;cursor:pointer;color:var(--ink2);flex-shrink:0;}
 
 /* JOURNAL */
 .jc{
@@ -973,9 +979,11 @@ div[onclick], span[onclick]{
         <!-- Barre de saisie -->
         <div id="chat-bar">
           <div id="chat-bar-inner">
-            <button class="chat-icon-btn" onclick="document.getElementById('chat-photo-input').click()" title="Photo étiquette">📷</button>
-            <div id="chat-input-wrap" onclick="document.getElementById('chat-in').focus()">
-              <textarea id="chat-in" placeholder="Posez votre question au sommelier…" onkeydown="chatKey(event)" oninput="autoH(this)" rows="1"></textarea>
+            <button class="chat-icon-btn" onclick="document.getElementById('chat-photo-input').click()" title="Prendre photo">📷</button>
+            <button class="chat-icon-btn" onclick="document.getElementById('chat-library-input').click()" title="Bibliothèque photos">🖼️</button>
+            <div id="chat-input-wrap" onclick="document.getElementById('chat-in').focus()" style="flex-direction:column;align-items:stretch;">
+              <div id="chat-img-preview"><img src="" alt=""><span class="lbl">Image prête à envoyer</span><button class="x" onclick="event.stopPropagation();clearChatImg();">✕</button></div>
+              <textarea id="chat-in" placeholder="Posez votre question au sommelier…" onkeydown="chatKey(event)" oninput="autoH(this)" onpaste="onChatPaste(event)" rows="1"></textarea>
             </div>
             <button id="chat-send-btn" onclick="sendChat()">↑</button>
           </div>
@@ -1208,6 +1216,9 @@ div[onclick], span[onclick]{
 
 <!-- Bannière proposition Face ID (après connexion) -->
 <input type="file" accept="image/*" capture="environment" id="chat-photo-input" onchange="onChatPhoto(event)" style="display:none;">
+<input type="file" accept="image/*" id="chat-library-input" onchange="onChatLibrary(event)" style="display:none;">
+<input type="file" accept="image/*" capture="environment" id="cave-chat-photo-input" onchange="onCaveChatPhoto(event)" style="display:none;">
+<input type="file" accept="image/*" id="cave-chat-library-input" onchange="onCaveChatLibrary(event)" style="display:none;">
 
 <!-- Panel accords IA (bottom sheet) -->
 <div id="acc-panel-backdrop" onclick="closeAccPanel()"></div>
@@ -4124,7 +4135,32 @@ function addBubble(role,txt,img){
   const html=role==='ai'?linkifyWines(txt.replace(/\n/g,'<br>')):txt.replace(/\n/g,'<br>');
   d.innerHTML=html;
   if(img)d.innerHTML+=`<br><img src="${img}" style="max-width:100%;border-radius:12px;margin-top:8px;">`;
+  if(role==='ai'){
+    const wrap=document.createElement('div');
+    wrap.style.cssText='margin-top:6px;';
+    const btn=document.createElement('button');
+    btn.className='cb-copy';btn.title='Copier le texte';
+    btn.innerHTML='📋 Copier';
+    btn.onclick=(e)=>{e.stopPropagation();copyAIText(txt,btn);};
+    wrap.appendChild(btn);
+    d.appendChild(wrap);
+  }
   document.getElementById('chat-msgs').appendChild(d);d.scrollIntoView({behavior:'smooth'});
+}
+
+// Copie le texte d'une réponse IA dans le presse-papier
+function copyAIText(txt,btn){
+  // Nettoie tags [[id]] avant copie
+  const clean=String(txt||'').replace(/\[\[\d+\]\]/g,'').trim();
+  const ok=()=>{if(btn){const o=btn.innerHTML;btn.innerHTML='✓ Copié';setTimeout(()=>{btn.innerHTML=o;},1500);}showToast('📋 Texte copié');};
+  const fail=()=>showToast('❌ Copie impossible');
+  if(navigator.clipboard?.writeText){
+    navigator.clipboard.writeText(clean).then(ok).catch(()=>{
+      try{const ta=document.createElement('textarea');ta.value=clean;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);ok();}catch(_){fail();}
+    });
+  }else{
+    try{const ta=document.createElement('textarea');ta.value=clean;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);ok();}catch(_){fail();}
+  }
 }
 
 function addTyp(){
@@ -4245,6 +4281,7 @@ async function sendChat(){
 
   if(chatB64){
     const img=chatB64;chatB64=null;
+    const _p=document.getElementById('chat-img-preview');if(_p){_p.style.display='none';_p.querySelector('img').src='';}
     addUser(txt||'📸 Photo',img);
     const ty=addTyp();
     try{
@@ -4307,7 +4344,38 @@ Français, format aéré avec emojis.`;
   }
 }
 
-function onChatPhoto(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{chatB64=ev.target.result;sendChat();};r.readAsDataURL(f);e.target.value='';}
+// Charge une image (caméra OU bibliothèque) → met dans chatB64 et affiche aperçu
+function _loadChatImage(f,autoSend){
+  if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    chatB64=ev.target.result;
+    showChatImgPreview(chatB64);
+    if(autoSend)sendChat();
+  };
+  r.readAsDataURL(f);
+}
+function onChatPhoto(e){_loadChatImage(e.target.files[0],false);e.target.value='';}
+function onChatLibrary(e){_loadChatImage(e.target.files[0],false);e.target.value='';}
+function onChatPaste(e){
+  const items=e.clipboardData?.items;if(!items)return;
+  for(const it of items){
+    if(it.type&&it.type.indexOf('image/')===0){
+      e.preventDefault();
+      const f=it.getAsFile();if(f)_loadChatImage(f,false);
+      return;
+    }
+  }
+}
+function showChatImgPreview(b64){
+  const p=document.getElementById('chat-img-preview');if(!p)return;
+  p.querySelector('img').src=b64;
+  p.style.display='flex';
+}
+function clearChatImg(){
+  chatB64=null;
+  const p=document.getElementById('chat-img-preview');if(p){p.style.display='none';p.querySelector('img').src='';}
+}
 function chatKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat();}}
 function autoH(el){el.style.height='';el.style.height=Math.min(el.scrollHeight,90)+'px';}
 function quickChat(txt){
@@ -4317,28 +4385,79 @@ function quickChat(txt){
 }
 
 function caveChatKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendCaveChat();}}
+let caveChatB64=null;
+function _loadCaveChatImage(f){
+  if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{caveChatB64=ev.target.result;showCaveChatImgPreview(caveChatB64);};
+  r.readAsDataURL(f);
+}
+function onCaveChatPhoto(e){_loadCaveChatImage(e.target.files[0]);e.target.value='';}
+function onCaveChatLibrary(e){_loadCaveChatImage(e.target.files[0]);e.target.value='';}
+function onCaveChatPaste(e){
+  const items=e.clipboardData?.items;if(!items)return;
+  for(const it of items){
+    if(it.type&&it.type.indexOf('image/')===0){
+      e.preventDefault();
+      const f=it.getAsFile();if(f)_loadCaveChatImage(f);
+      return;
+    }
+  }
+}
+function showCaveChatImgPreview(b64){
+  const p=document.getElementById('cave-chat-img-preview');if(!p)return;
+  p.querySelector('img').src=b64;
+  p.style.display='flex';
+}
+function clearCaveChatImg(){
+  caveChatB64=null;
+  const p=document.getElementById('cave-chat-img-preview');if(p){p.style.display='none';p.querySelector('img').src='';}
+}
 async function sendCaveChat(){
   const inp=document.getElementById('cave-chat-in');
   const msgsEl=document.getElementById('cave-chat-msgs');
   if(!inp||!msgsEl)return;
-  const txt=inp.value.trim();if(!txt)return;
+  const txt=inp.value.trim();
+  if(!txt&&!caveChatB64)return;
   inp.value='';inp.style.height='';
-  const addMsg=(cls,html)=>{
+  const addMsg=(cls,html,rawTxt)=>{
     const d=document.createElement('div');
     d.style.cssText=`padding:8px 12px;font-size:12px;line-height:1.45;${cls==='user'?'background:var(--rouge-l);color:var(--rouge);text-align:right;':'background:var(--paper);color:var(--ink);border-top:1px solid var(--paper2);'}`;
-    d.innerHTML=html;msgsEl.appendChild(d);
+    d.innerHTML=html;
+    if(cls==='ai'&&rawTxt){
+      const wrap=document.createElement('div');wrap.style.cssText='margin-top:6px;';
+      const btn=document.createElement('button');
+      btn.className='cb-copy';btn.title='Copier le texte';btn.innerHTML='📋 Copier';
+      btn.onclick=(e)=>{e.stopPropagation();copyAIText(rawTxt,btn);};
+      wrap.appendChild(btn);d.appendChild(wrap);
+    }
+    msgsEl.appendChild(d);
     d.scrollIntoView({behavior:'smooth',block:'nearest'});
     return d;
   };
-  addMsg('user',txt);
+  // Affiche le message utilisateur (texte + miniature image éventuelle)
+  let userHtml=txt?txt.replace(/\n/g,'<br>'):'📸 Photo';
+  if(caveChatB64)userHtml+=`<br><img src="${caveChatB64}" style="max-width:100%;border-radius:8px;margin-top:6px;">`;
+  addMsg('user',userHtml);
   const ty=addMsg('ai','<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>');
   const cavesCtx=buildCaveContextForAI();
   const sys=`Tu es un sommelier expert. Tu tutoies. Réponses très courtes (2-3 lignes max).\nCaves:\n${cavesCtx}`;
   try{
-    const msgs=[...chatHist.slice(-4),{role:'user',content:txt}];
-    const ans=await apiCallWithSys(sys,msgs,300);
-    ty.remove();addMsg('ai',ans.trim().replace(/\n/g,'<br>'));
-    chatHist.push({role:'user',content:txt},{role:'assistant',content:ans.trim()});
+    let ans;
+    if(caveChatB64){
+      const img=caveChatB64;caveChatB64=null;clearCaveChatImg();
+      ans=await apiCall([{role:'user',content:[
+        {type:'image',source:{type:'base64',media_type:img.split(';')[0].split(':')[1],data:img.split(',')[1]}},
+        {type:'text',text:`${cavesCtx}\n\n${txt||'Analyse cette bouteille brièvement (2-3 lignes max). Si elle est dans mes caves, indique sa position avec [[id]].'}`}
+      ]}],400);
+    }else{
+      const msgs=[...chatHist.slice(-4),{role:'user',content:txt}];
+      ans=await apiCallWithSys(sys,msgs,300);
+    }
+    ty.remove();
+    const cleaned=ans.trim();
+    addMsg('ai',cleaned.replace(/\n/g,'<br>'),cleaned);
+    chatHist.push({role:'user',content:txt||'[photo]'},{role:'assistant',content:cleaned});
     if(chatHist.length>20)chatHist=chatHist.slice(-20);
   }catch(e){ty.remove();addMsg('ai','Désolé, réessaie.');}
 }
@@ -6221,9 +6340,14 @@ function renderCavePage(){
     <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.9px;margin:16px 0 7px;">🤖 Sommelier IA</div>
     <div style="background:var(--white);border-radius:14px;overflow:hidden;box-shadow:var(--shadow-s);margin-bottom:8px;">
       <div id="cave-chat-msgs" style="display:flex;flex-direction:column;"></div>
-      <div style="padding:8px 10px;display:flex;gap:8px;align-items:flex-end;">
-        <textarea id="cave-chat-in" placeholder="Conseil, accord, où ranger…" onkeydown="caveChatKey(event)" oninput="autoH(this)" rows="1" style="flex:1;border:1.5px solid var(--border);border-radius:10px;background:var(--paper);padding:8px 10px;font-size:13px;font-family:'Outfit',sans-serif;resize:none;outline:none;line-height:1.4;color:var(--ink);"></textarea>
-        <button onclick="sendCaveChat()" style="width:34px;height:34px;border-radius:50%;border:none;background:var(--rouge);color:var(--white);cursor:pointer;flex-shrink:0;font-size:15px;display:flex;align-items:center;justify-content:center;">↩</button>
+      <div style="padding:8px 10px;">
+        <div id="cave-chat-img-preview"><img src="" alt=""><span class="lbl">Image prête</span><button class="x" onclick="clearCaveChatImg();">✕</button></div>
+        <div style="display:flex;gap:6px;align-items:flex-end;">
+          <button onclick="document.getElementById('cave-chat-photo-input').click()" title="Prendre photo" style="width:30px;height:30px;border-radius:50%;border:none;background:var(--paper2);color:var(--ink2);cursor:pointer;flex-shrink:0;font-size:13px;">📷</button>
+          <button onclick="document.getElementById('cave-chat-library-input').click()" title="Bibliothèque" style="width:30px;height:30px;border-radius:50%;border:none;background:var(--paper2);color:var(--ink2);cursor:pointer;flex-shrink:0;font-size:13px;">🖼️</button>
+          <textarea id="cave-chat-in" placeholder="Conseil, accord, où ranger…" onkeydown="caveChatKey(event)" oninput="autoH(this)" onpaste="onCaveChatPaste(event)" rows="1" style="flex:1;border:1.5px solid var(--border);border-radius:10px;background:var(--paper);padding:8px 10px;font-size:13px;font-family:'Outfit',sans-serif;resize:none;outline:none;line-height:1.4;color:var(--ink);"></textarea>
+          <button onclick="sendCaveChat()" style="width:34px;height:34px;border-radius:50%;border:none;background:var(--rouge);color:var(--white);cursor:pointer;flex-shrink:0;font-size:15px;display:flex;align-items:center;justify-content:center;">↩</button>
+        </div>
       </div>
     </div>
 
