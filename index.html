@@ -484,6 +484,23 @@ div[onclick], span[onclick]{
 #chat-send-btn:active{transform:scale(.9);}
 .cb-copy{margin-top:8px;border:none;background:var(--paper2);color:var(--ink2);border-radius:14px;padding:4px 10px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-family:'Outfit',sans-serif;}
 .cb-copy:active{background:var(--border);}
+/* ── Fiche IA : mise en page structurée des réponses du sommelier ── */
+.cb.ai.has-fiche{max-width:94%;background:var(--white);border-color:var(--border);}
+.ai-fiche-block{margin:4px 0;font-size:13px;line-height:1.5;}
+.ai-fiche-section{background:#faf6f1;border-radius:10px;border-left:3px solid #c8b89c;padding:7px 10px 7px 11px;margin:6px 0;}
+.ai-fiche-ttl{font-size:11px;font-weight:700;color:var(--ink);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px;display:flex;align-items:center;gap:5px;}
+.ai-fiche-body{font-size:12.5px;color:var(--ink);line-height:1.5;}
+.ai-fiche-p{margin:2px 0;}
+.ai-fiche-bullets{margin:4px 0 2px;padding-left:18px;}
+.ai-fiche-bullets li{margin:2px 0;}
+.ai-fiche-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}
+.ai-fiche-chip{background:var(--white);border:1px solid var(--border);border-radius:14px;padding:3px 9px;font-size:11.5px;color:var(--ink);}
+.ai-fiche-score{display:inline-flex;align-items:center;gap:5px;background:#FAEEDA;color:#854F0B;padding:2px 9px;border-radius:14px;font-weight:700;font-size:11.5px;}
+.ai-fiche-mat-chip{display:inline-flex;align-items:center;gap:5px;background:#fff4e8;color:#993C1D;padding:2px 9px;border-radius:14px;font-weight:600;font-size:11.5px;border:1px solid #f0d5b8;}
+.ai-fiche-mat-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+.ai-fiche-year{display:inline-block;background:#EEEDFE;color:#3C3489;border-radius:5px;padding:1px 7px;font-size:11.5px;font-weight:600;margin:0 3px 3px 0;}
+.ai-fiche-title{font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:700;color:var(--ink);margin-bottom:8px;display:flex;align-items:center;gap:7px;}
+.ai-fiche-title-dot{width:10px;height:10px;border-radius:50%;display:inline-block;}
 #chat-img-preview,#cave-chat-img-preview{display:none;align-items:center;gap:8px;background:var(--paper2);border-radius:10px;padding:6px 8px;margin-bottom:6px;max-width:100%;}
 #chat-img-preview img,#cave-chat-img-preview img{height:40px;width:40px;object-fit:cover;border-radius:6px;flex-shrink:0;}
 #chat-img-preview .lbl,#cave-chat-img-preview .lbl{font-size:11px;color:var(--ink2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -1115,8 +1132,9 @@ div[onclick], span[onclick]{
       <span>🍾</span><span>La bouteille sera automatiquement retirée de la cave</span>
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="btn btn-secondary" style="flex:1;" onclick="closeOv('ov-journal')">Annuler</button>
-      <button class="btn btn-primary" style="flex:1;" onclick="saveJournal()">Enregistrer</button>
+      <button id="j-cancel-btn" class="btn btn-secondary" style="flex:1;" onclick="closeOv('ov-journal')">Annuler</button>
+      <button id="j-save-btn" class="btn btn-primary" style="flex:1;" onclick="saveJournal()">Enregistrer</button>
+      <button id="j-edit-btn" class="btn btn-primary" style="flex:1;display:none;" onclick="switchJournalToEdit()">✏️ Modifier</button>
     </div>
     <button id="j-delete-btn" onclick="deleteJournalEntry()" style="display:none;width:100%;margin-top:10px;padding:10px;border-radius:10px;border:1px dashed #dc2626;background:transparent;color:#dc2626;font-size:12px;cursor:pointer;">🗑️ Supprimer cette entrée du journal</button>
   </div>
@@ -3895,7 +3913,7 @@ function renderJournal(){
     if(appellation)detailParts.push(appellation);
     if(region)detailParts.push(region);
     const detailLine=detailParts.length?`<div style="font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${detailParts.join(' · ')}</div>`:'';
-    return `<div class="jc" style="${isSortie?'border-left:3px solid #E67E22;':'border-left:3px solid #8E2443;'}">
+    return `<div class="jc" onclick="viewJournalEntry(${j.id})" style="cursor:pointer;${isSortie?'border-left:3px solid #E67E22;':'border-left:3px solid #8E2443;'}">
       <div class="jh">
         <div style="display:flex;align-items:center;gap:5px;min-width:0;flex:1;margin-right:8px;">
           ${couleurDot}
@@ -3908,7 +3926,7 @@ function renderJournal(){
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
           ${typeBadge}
           <div class="jd">${j.date}</div>
-          <button onclick="openJournalModal(db.journal.find(x=>x.id===${j.id}))" style="background:var(--paper2);border:1px solid var(--border);border-radius:7px;padding:3px 8px;font-size:13px;cursor:pointer;color:var(--ink2);">✏️</button>
+          <button onclick="event.stopPropagation();openJournalModal(db.journal.find(x=>x.id===${j.id}))" style="background:var(--paper2);border:1px solid var(--border);border-radius:7px;padding:3px 8px;font-size:13px;cursor:pointer;color:var(--ink2);">✏️</button>
         </div>
       </div>
       ${!isSortie&&j.note?`<div class="stars">${'⭐'.repeat(j.note)}</div>`:''}
@@ -3965,18 +3983,25 @@ function updateJVinDetails(){
   else{box.style.display='none';box.innerHTML='';}
 }
 
-function openJournalModal(entry, type){
+function openJournalModal(entry, type, readonly){
   document.getElementById('j-vin').innerHTML=db.wines.map(w=>`<option value="${w.id}">${w.nom}${w.millesime?' '+w.millesime:''}</option>`).join('');
   const degFields=document.getElementById('j-degustation-fields');
   const sortieFields=document.getElementById('j-sortie-reason');
   const autoRemInfo=document.getElementById('j-auto-remove-info');
   const delBtn=document.getElementById('j-delete-btn');
+  const saveBtn=document.getElementById('j-save-btn');
+  const editBtn=document.getElementById('j-edit-btn');
+  const cancelBtn=document.getElementById('j-cancel-btn');
   if(entry){
-    // mode édition
+    // mode édition (ou consultation si readonly)
     const eType=entry.type||'degustation';
     document.getElementById('j-type').value=eType;
     document.getElementById('j-edit-id').value=entry.id;
-    document.getElementById('j-modal-title').textContent=eType==='sortie'?'Modifier la sortie':'Modifier la dégustation';
+    if(readonly){
+      document.getElementById('j-modal-title').textContent=eType==='sortie'?'📦 Sortie':'🍷 Dégustation';
+    }else{
+      document.getElementById('j-modal-title').textContent=eType==='sortie'?'Modifier la sortie':'Modifier la dégustation';
+    }
     // En édition, on FORCE l'affichage à correspondre au snapshot stocké dans l'entrée journal,
     // sans dépendre de db.wines (un id de bouteille peut avoir été réutilisé par un autre vin
     // après retrait/ré-import — sinon le mauvais vin s'affiche dans la liste et la description).
@@ -4009,8 +4034,13 @@ function openJournalModal(entry, type){
     }
     document.getElementById('j-vin').disabled=true;
     autoRemInfo.style.display='none'; // masquer en édition (bouteille déjà retirée)
-    // Bouton supprimer visible uniquement pour l'admin
-    delBtn.style.display=isAdmin?'':'none';
+    // Mode consultation (readonly) : tout est verrouillé, seule la fermeture est possible
+    _setJournalReadOnly(!!readonly);
+    // Bouton supprimer visible uniquement en édition + admin
+    delBtn.style.display=(isAdmin&&!readonly)?'':'none';
+    if(saveBtn)saveBtn.style.display=readonly?'none':'';
+    if(editBtn)editBtn.style.display=readonly?'':'none';
+    if(cancelBtn)cancelBtn.textContent=readonly?'Fermer':'Annuler';
   }else{
     const t=type||'degustation';
     document.getElementById('j-type').value=t;
@@ -4030,6 +4060,10 @@ function openJournalModal(entry, type){
     updateJVinDetails();
     autoRemInfo.style.display=''; // afficher l'info retrait auto en création
     delBtn.style.display='none'; // pas de suppression en création
+    _setJournalReadOnly(false);
+    if(saveBtn)saveBtn.style.display='';
+    if(editBtn)editBtn.style.display='none';
+    if(cancelBtn)cancelBtn.textContent='Annuler';
     if(t==='sortie'){
       degFields.style.display='none';sortieFields.style.display='';
     }else{
@@ -4037,6 +4071,35 @@ function openJournalModal(entry, type){
     }
   }
   openOv('ov-journal');
+}
+
+// Verrouille / déverrouille tous les champs du modal journal pour la consultation
+function _setJournalReadOnly(ro){
+  const ids=['j-vin','j-date','j-note','j-cmt','j-motif','j-sortie-cmt'];
+  ids.forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el)return;
+    if(ro){el.setAttribute('disabled','disabled');}
+    else{
+      // En mode édition normale, j-vin reste désactivé (logique existante), les autres sont libres
+      if(id!=='j-vin')el.removeAttribute('disabled');
+    }
+  });
+}
+
+// Ouvre une entrée journal en consultation (lecture seule)
+function viewJournalEntry(id){
+  const entry=db.journal.find(j=>j.id===id);
+  if(!entry){showToast('⚠️ Entrée introuvable');return;}
+  openJournalModal(entry,null,true);
+}
+
+// Bascule du mode consultation vers édition (bouton ✏️ Modifier dans la modale)
+function switchJournalToEdit(){
+  const id=parseInt(document.getElementById('j-edit-id').value);
+  const entry=db.journal.find(j=>j.id===id);
+  if(!entry)return;
+  openJournalModal(entry,null,false);
 }
 
 // Suppression d'une entrée journal (admin uniquement)
@@ -4170,9 +4233,145 @@ function linkifyWines(txt){
   });
 }
 
+// Mini-parseur Markdown inline : **gras**, *italique* (préserve les <span> déjà injectés)
+function _aiInlineMd(s){
+  return String(s)
+    .replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,;:!?)]|$)/g,'$1<em>$2</em>');
+}
+
+// Définition des sections détectées dans les réponses du sommelier IA
+const _AI_SECTIONS=[
+  {keys:['identification','vin'],icon:'🍷',color:'#3a1a0a',label:'Identification'},
+  {keys:['terroir'],icon:'🌍',color:'#639922',label:'Terroir'},
+  {keys:['producteur','domaine','château','chateau'],icon:'👨‍🌾',color:'#8E2443',label:'Producteur'},
+  {keys:['note','score','notation'],icon:'📊',color:'#BA7517',label:'Note'},
+  {keys:['maturité','maturite','apogée','apogee','garde'],icon:'🍇',color:'#E67E22',label:'Maturité'},
+  {keys:['bonnes années','bonnes annees','millésimes','millesimes','meilleurs millésimes','meilleurs millesimes'],icon:'⭐',color:'#534AB7',label:'Bonnes années'},
+  {keys:['accords','accord','accords mets','suggestions','accords mets-vins','accords mets & vins','mets & vins','mets et vins'],icon:'🍽️',color:'#185FA5',label:'Accords'},
+  {keys:['cépage','cepage','cépages','cepages','encépagement'],icon:'🍇',color:'#534AB7',label:'Cépages'},
+  {keys:['région','region','appellation','aoc'],icon:'📍',color:'#5DCAA5',label:'Région'},
+  {keys:['style','dégustation','degustation','profil'],icon:'👅',color:'#D4537E',label:'Style'},
+  {keys:['emplacement','position','localisation'],icon:'📍',color:'#5DCAA5',label:'Emplacement'}
+];
+function _aiLookupSection(str){
+  // Conserve uniquement lettres / chiffres / espaces / tirets : retire emojis, ponctuation, ZWJ, etc.
+  const cleaned=String(str||'')
+    .replace(/[^\p{L}\p{N}\s\-]/gu,'')
+    .replace(/\s+/g,' ')
+    .trim().toLowerCase();
+  if(!cleaned)return null;
+  for(const s of _AI_SECTIONS){
+    if(s.keys.includes(cleaned))return s;
+  }
+  return null;
+}
+
+// Détecte si une ligne ressemble à un en-tête de section "**Titre :** suite"
+function _aiParseSectionHeader(line){
+  // Patterns acceptés :
+  //   **🌍 Terroir :** rest
+  //   🌍 **Terroir :** rest
+  //   **TERROIR**: rest
+  //   ## Terroir
+  let m=line.match(/^\s*(?:#{1,3}\s+)?(?:[^\w\n]*)\*\*\s*([^*]+?)\s*\*\*\s*[:：]?\s*(.*)$/);
+  if(m){
+    const meta=_aiLookupSection(m[1]);
+    if(meta)return {meta,rest:m[2]||''};
+  }
+  // En-tête sans gras : "🌍 Terroir : rest"
+  m=line.match(/^\s*(?:[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]+\s+)?([\wÀ-ÿ& -]{3,30})\s*[:：]\s*(.*)$/u);
+  if(m){
+    const meta=_aiLookupSection(m[1]);
+    if(meta)return {meta,rest:m[2]||''};
+  }
+  return null;
+}
+
+// Convertit le corps d'un bloc (texte + sauts de ligne) en HTML
+// Si un objet "section" est passé, applique les transformations spécifiques (chips, score, etc.)
+function _aiRenderBlockBody(text,section){
+  if(!text)return '';
+  const lines=text.split('\n');
+  const out=[];
+  let listItems=[];
+  const flushList=()=>{
+    if(!listItems.length)return;
+    if(section&&section.label==='Accords'){
+      out.push('<div class="ai-fiche-chips">'+listItems.map(it=>`<span class="ai-fiche-chip">${it}</span>`).join('')+'</div>');
+    }else{
+      out.push('<ul class="ai-fiche-bullets">'+listItems.map(it=>`<li>${it}</li>`).join('')+'</ul>');
+    }
+    listItems=[];
+  };
+  for(const raw of lines){
+    const ln=raw.trim();
+    if(!ln){flushList();continue;}
+    const bm=ln.match(/^[-•*]\s+(.+)$/);
+    if(bm){listItems.push(_aiInlineMd(bm[1].trim()));continue;}
+    flushList();
+    out.push('<div class="ai-fiche-p">'+_aiInlineMd(ln)+'</div>');
+  }
+  flushList();
+  let html=out.join('');
+  // Transformations spécifiques par section
+  if(section){
+    if(section.label==='Note'){
+      html=html.replace(/(\d{2,3})\s*\/\s*100/g,'<span class="ai-fiche-score">★ $1/100</span>');
+    }
+    if(section.label==='Maturité'){
+      const dot=(c)=>`<span class="ai-fiche-mat-dot" style="background:${c};"></span>`;
+      html=html.replace(/🟢/g,dot('#22c55e')).replace(/🟡/g,dot('#eab308')).replace(/🟠/g,dot('#E67E22')).replace(/🔴/g,dot('#dc2626'));
+      // Plage d'apogée 20XX-20XX → puce
+      html=html.replace(/(\d{4})\s*[-–à]\s*(\d{4})/g,'<span class="ai-fiche-mat-chip">📅 $1–$2</span>');
+    }
+    if(section.label==='Bonnes années'||section.label==='Millésimes'){
+      html=html.replace(/(?<![\d.])(\d{4})(?!\d)/g,'<span class="ai-fiche-year">$1</span>');
+    }
+  }
+  return html;
+}
+
+// Convertit le texte brut de l'IA en HTML "fiche" structurée.
+// Retourne {html, hasFiche}. hasFiche=true si au moins une section a été détectée.
+function _aiTextToFicheHTML(rawTxt){
+  const txt=String(rawTxt||'');
+  if(!txt.trim())return {html:'',hasFiche:false};
+  const lines=txt.split('\n');
+  const blocks=[];
+  let current={section:null,lines:[]};
+  for(const ln of lines){
+    const hdr=_aiParseSectionHeader(ln);
+    if(hdr){
+      if(current.section||current.lines.length)blocks.push(current);
+      current={section:hdr.meta,lines:hdr.rest?[hdr.rest]:[]};
+    }else{
+      current.lines.push(ln);
+    }
+  }
+  if(current.section||current.lines.length)blocks.push(current);
+  let hasFiche=false;
+  const parts=blocks.map(b=>{
+    const inner=_aiRenderBlockBody(b.lines.join('\n'),b.section);
+    if(b.section){
+      hasFiche=true;
+      return `<div class="ai-fiche-section" style="border-left-color:${b.section.color};"><div class="ai-fiche-ttl">${b.section.icon} ${b.section.label}</div><div class="ai-fiche-body">${inner}</div></div>`;
+    }
+    return inner?`<div class="ai-fiche-block">${inner}</div>`:'';
+  }).filter(Boolean);
+  return {html:parts.join(''),hasFiche};
+}
+
 function addBubble(role,txt,img){
   const d=document.createElement('div');d.className=`cb ${role}`;
-  const html=role==='ai'?linkifyWines(txt.replace(/\n/g,'<br>')):txt.replace(/\n/g,'<br>');
+  let html;
+  if(role==='ai'){
+    const fiche=_aiTextToFicheHTML(txt);
+    html=linkifyWines(fiche.html);
+    if(fiche.hasFiche)d.classList.add('has-fiche');
+  }else{
+    html=txt.replace(/\n/g,'<br>');
+  }
   d.innerHTML=html;
   if(img)d.innerHTML+=`<br><img src="${img}" style="max-width:100%;border-radius:12px;margin-top:8px;">`;
   if(role==='ai'){
@@ -4496,7 +4695,9 @@ async function sendCaveChat(){
     }
     ty.remove();
     const cleaned=ans.trim();
-    addMsg('ai',cleaned.replace(/\n/g,'<br>'),cleaned);
+    // Rendu fiche IA (markdown + sections) avec linkify des vins de la cave
+    const fiche=_aiTextToFicheHTML(cleaned);
+    addMsg('ai',linkifyWines(fiche.html),cleaned);
     chatHist.push({role:'user',content:txt||'[photo]'},{role:'assistant',content:cleaned});
     if(chatHist.length>20)chatHist=chatHist.slice(-20);
   }catch(e){ty.remove();addMsg('ai','Désolé, réessaie.');}
