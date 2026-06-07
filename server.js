@@ -155,6 +155,21 @@ app.post('/api/data', requireAuth, async (req, res) => {
   const { data } = req.body || {};
   if (!data) return res.status(400).json({ error: 'data manquant' });
 
+  // 🛡️ GARDE-FOU anti-écrasement (incident du 03/06/2026 : base vidée par un device au cache vide).
+  // Refuse de remplacer des vins/caves existants par un payload vide.
+  const incWines = Array.isArray(data.wines) ? data.wines.length : 0;
+  const incCaves = Array.isArray(data.caves) ? data.caves.length : 0;
+  if (incWines === 0 && incCaves === 0) {
+    const { rows: cur } = await pool.query("SELECT data FROM shared_data WHERE id = 'main'");
+    const curData = cur[0]?.data || {};
+    const curWines = Array.isArray(curData.wines) ? curData.wines.length : 0;
+    const curCaves = Array.isArray(curData.caves) ? curData.caves.length : 0;
+    if (curWines > 0 || curCaves > 0) {
+      console.warn(`[GARDE-FOU] POST vide REFUSÉ : payload 0 vin/0 cave alors que la base contient ${curWines} vins / ${curCaves} caves.`);
+      return res.status(409).json({ error: 'Sauvegarde vide refusée : la base contient déjà des données. Rechargez l’application avant de sauvegarder.' });
+    }
+  }
+
   const t0 = Date.now();
   try {
     const { rows } = await pool.query(
