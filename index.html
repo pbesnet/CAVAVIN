@@ -4022,9 +4022,7 @@ function _buildJVinDetailsHTML(src){
   if(src.scorePresse)rows.push(`<b>Score :</b> ${src.scorePresse}/100`);
   if(src.dateAchat)rows.push(`<b>Acheté :</b> ${src.dateAchat}`);
   if(src.apogeeDebut&&src.apogeeFin)rows.push(`<b>Apogée :</b> ${src.apogeeDebut}-${src.apogeeFin}`);
-  // Cave : disponible sur les vins db.wines (caveId) ou snapshot journal (caveName)
-  const caveName=src.caveName||(src.caveId!=null?getCave(src.caveId)?.name:null);
-  if(caveName)rows.push(`<b>Cave :</b> ${caveName}`);
+  if(src.lieuAchat)rows.push(`<b>Lieu d'achat :</b> ${src.lieuAchat}`);
   return parts.join('')+rows.join(' · ');
 }
 
@@ -4209,7 +4207,7 @@ function saveJournal(){
       prix:w.prix||null,scorePresse:w.scorePresse||null,dateAchat:w.dateAchat||null,
       rhumType:w.rhumType||null,distillerie:w.distillerie||null,
       apogeeDebut:w.apogeeDebut||null,apogeeFin:w.apogeeFin||null,
-      caveName:getCave(w.caveId)?.name||null,
+      lieuAchat:w.lieuAchat||null,
       date,type:jType};
     // Fonction locale pour retirer une bouteille et effacer sa photo de la base
     const _removeBottle=(wid)=>{
@@ -6492,6 +6490,23 @@ ON CONFLICT DO NOTHING;`;
 // ═══════════════════════════════════════════
 // CAVE SCHEMA (rendu clayette par clayette)
 // ═══════════════════════════════════════════
+// Répare les positions des vins Vrac qui sont nulles ou hors VRAC_COLS (colonnes > 10)
+function repairVracPositions(){
+  const vrac=db.caves.find(c=>c.vrac);
+  if(!vrac)return false;
+  const wines=winesOfCave(vrac.id);
+  const needsRepair=wines.some(w=>{
+    if(!w.position)return true;
+    const m=w.position.match(/^C\d+-R\d+-(\d+)$/);
+    return !m||parseInt(m[1])>VRAC_COLS;
+  });
+  if(!needsRepair)return false;
+  wines.forEach(w=>{w.position=null;});
+  wines.forEach(w=>{const vp=vracNextPos(vrac);if(vp)w.position=vp.pos;});
+  dbSave();
+  return true;
+}
+
 function renderCavePage(){
   const grid=document.getElementById('wine-grid');
   if(!db.caves.length){
@@ -6499,6 +6514,8 @@ function renderCavePage(){
     return;
   }
   if(!activeCave||!getCave(activeCave))activeCave=db.caves[0].id;
+  // Réparer silencieusement les positions Vrac invalides si la cave active est Vrac
+  if(getCave(activeCave)?.vrac)repairVracPositions();
   // Mémoriser la dernière cave consultée pour la restaurer au prochain login
   try{localStorage.setItem('cavavin_lastCave',String(activeCave));}catch(_){}
   const cave=getCave(activeCave);
