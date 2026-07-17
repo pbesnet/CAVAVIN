@@ -2499,16 +2499,18 @@ function ensureVracCave(){
 const VRAC_COLS=10; // max bouteilles par ligne en Cave Vrac
 function vracNextPos(cave){
   const cl=cave.clayettes[0];
-  const rows=cl.rows;
   const used=new Set(winesOfCave(cave.id).map(w=>w.position));
   // Remplit depuis la ligne du bas (rows-1) vers le haut (0), 10 max par ligne
-  for(let r=rows-1;r>=0;r--){
+  for(let r=cl.rows-1;r>=0;r--){
     for(let c=0;c<VRAC_COLS;c++){
       const pos=mkPos(0,r,c);
       if(!used.has(pos))return{pos,ci:0,r,c,reason:'Cave Vrac'};
     }
   }
-  return null;
+  // Grille pleine : étendre de 10 lignes vers le bas
+  cl.rows+=10;
+  const r=cl.rows-1;
+  return{pos:mkPos(0,r,0),ci:0,r,c:0,reason:'Cave Vrac'};
 }
 
 
@@ -4020,6 +4022,9 @@ function _buildJVinDetailsHTML(src){
   if(src.scorePresse)rows.push(`<b>Score :</b> ${src.scorePresse}/100`);
   if(src.dateAchat)rows.push(`<b>Acheté :</b> ${src.dateAchat}`);
   if(src.apogeeDebut&&src.apogeeFin)rows.push(`<b>Apogée :</b> ${src.apogeeDebut}-${src.apogeeFin}`);
+  // Cave : disponible sur les vins db.wines (caveId) ou snapshot journal (caveName)
+  const caveName=src.caveName||(src.caveId!=null?getCave(src.caveId)?.name:null);
+  if(caveName)rows.push(`<b>Cave :</b> ${caveName}`);
   return parts.join('')+rows.join(' · ');
 }
 
@@ -4204,6 +4209,7 @@ function saveJournal(){
       prix:w.prix||null,scorePresse:w.scorePresse||null,dateAchat:w.dateAchat||null,
       rhumType:w.rhumType||null,distillerie:w.distillerie||null,
       apogeeDebut:w.apogeeDebut||null,apogeeFin:w.apogeeFin||null,
+      caveName:getCave(w.caveId)?.name||null,
       date,type:jType};
     // Fonction locale pour retirer une bouteille et effacer sa photo de la base
     const _removeBottle=(wid)=>{
@@ -5045,22 +5051,31 @@ function wizCreateDirect(){
     const c=getCave(editingCaveId);if(!c)return;
     c.name=draft.name;c.description=draft.description;c.lieu=draft.lieu;c.type=draft.type;
     c.isRhum=draft.isRhum;c.clayettes=draft.clayettes;
-    // Recalculer les positions ; bouteilles qui ne rentrent plus → Cave Vrac
+    // Recalculer les positions
     const wines=winesOfCave(c.id);
     wines.forEach(w=>{w.position=null;});
     let overflow=0;
     const vrac=db.caves.find(x=>x.vrac);
-    wines.forEach(w=>{
-      const reco=bestPosition(c,{couleur:w.couleur,region:w.region,millesime:w.millesime});
-      if(reco){w.position=reco.pos;}
-      else if(vrac){
-        // Plus de place → Cave Vrac
-        w.caveId=vrac.id;
-        const vp=vracNextPos(vrac);
-        w.position=vp?vp.pos:null;
-        overflow++;
-      }
-    });
+    if(c.vrac){
+      // Cave Vrac : repositionner avec vracNextPos (respecte VRAC_COLS)
+      wines.forEach(w=>{
+        const vp=vracNextPos(c);
+        if(vp)w.position=vp.pos;
+      });
+    }else{
+      // Cave structurée : repositionnement classique, débordement → Cave Vrac
+      wines.forEach(w=>{
+        const reco=bestPosition(c,{couleur:w.couleur,region:w.region,millesime:w.millesime});
+        if(reco){w.position=reco.pos;}
+        else if(vrac){
+          // Plus de place → Cave Vrac
+          w.caveId=vrac.id;
+          const vp=vracNextPos(vrac);
+          w.position=vp?vp.pos:null;
+          overflow++;
+        }
+      });
+    }
     dbSave();closeOv('ov-cave-wizard');
     updateTopbarSel();updateSidebarCaves();renderSettings();renderCavePage();
     showToast(overflow>0?`✅ Cave modifiée · ${overflow} bouteille${overflow>1?'s':''} déplacée${overflow>1?'s':''} en Vrac`:'✅ Cave modifiée');
@@ -6056,6 +6071,7 @@ function showDetail(id,fromChat=false){
 function openJournalForWine(wineId){
   openJournalModal(null,'degustation');
   document.getElementById('j-vin').value=wineId;
+  updateJVinDetails();
 }
 
 function _addSortieJournalEntry(wine){
