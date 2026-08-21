@@ -1,7 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
 // CAVAVIN — Backend Node.js pour AIVEN PostgreSQL
-// v2 : couche données relationnelle (caves / wines / journal / app_meta)
-//      Même contrat d'API que la v1 → le front (index.html) ne change pas.
+// v3 : lazy loading des photos.
+//   - GET /api/data ne renvoie plus les photos (juste hasPhoto)
+//   - GET /api/photo/:id renvoie une photo à la demande
+//   - POST & PATCH préservent la photo en base si le payload n'en fournit pas
+//   Contrat inchangé pour tout le reste.
 // ═══════════════════════════════════════════════════════════════
 'use strict';
 
@@ -45,18 +48,44 @@ function requireAuth(req, res, next) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// HELPERS de mapping table <-> objet attendu par le front
+// HELPERS de mapping
 // ═══════════════════════════════════════════════════════════════
-// Vin : la photo vit dans sa colonne ; le reste dans data.
-function rowToWine(row)  { return { ...row.data, id: row.id, caveId: row.cave_id, photo: row.photo ?? null }; }
-function wineToRow(w)    { const { photo, ...rest } = w; return { id: w.id, cave_id: w.caveId ?? null, photo: photo ?? null, data: rest }; }
-function rowToCave(row)  { return { ...row.data, id: row.id }; }
+// data = le vin SANS la photo (la photo vit dans sa colonne)
+function wineDataOnly(w) { const { photo, ...rest } = w; return rest; }
+// true si le payload fournit explicitement une clé "photo" (même null = effacement voulu)
+function photoProvided(w) { return Object.prototype.hasOwnProperty.call(w, 'photo'); }
+function rowToCave(row)   { return { ...row.data, id: row.id }; }
+
+// Upsert d'un vin en préservant la photo si le payload n'en fournit pas.
+async function upsertWine(client, w) {
+  const data = JSON.stringify(wineDataOnly(w));
+  const caveId = w.caveId ?? null;
+  if (photoProvided(w)) {
+    // Le front fournit la photo (nouvelle, inchangée, ou null=effacement) → on l'applique.
+    await client.query(
+      `INSERT INTO wines (id, cave_id, photo, data, updated_at)
+       VALUES ($1,$2,$3,$4::jsonb,NOW())
+       ON CONFLICT (id) DO UPDATE
+         SET cave_id=EXCLUDED.cave_id, photo=EXCLUDED.photo, data=EXCLUDED.data, updated_at=NOW()`,
+      [w.id, caveId, w.photo ?? null, data]
+    );
+  } else {
+    // Pas de photo dans le payload (cas lazy) → on NE TOUCHE PAS la colonne photo existante.
+    await client.query(
+      `INSERT INTO wines (id, cave_id, photo, data, updated_at)
+       VALUES ($1,$2,NULL,$3::jsonb,NOW())
+       ON CONFLICT (id) DO UPDATE
+         SET cave_id=EXCLUDED.cave_id, data=EXCLUDED.data, updated_at=NOW()`,
+      [w.id, caveId, data]
+    );
+  }
+}
 
 // ── Health check ──────────────────────────────────────────────
 app.get('/api/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
 // ═══════════════════════════════════════════════════════════════
-// AUTH  (inchangé par rapport à la v1)
+// AUTH  (inchangé)
 // ═══════════════════════════════════════════════════════════════
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -96,24 +125,24 @@ app.post('/api/auth/reset', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// DONNÉES — v2 relationnelle
+// DONNÉES — v3 (photos en lazy)
 // ═══════════════════════════════════════════════════════════════
 
-// GET /api/data → recompose l'objet { data:{caves,wines,journal,nCave,nWine,statsAnnuelles}, api_key }
+// GET /api/data → vins SANS photo (hasPhoto seulement) : réponse légère
 app.get('/api/data', requireAuth, async (req, res) => {
   if (req.user.demo_only) return res.status(403).json({ error: 'Accès réservé au mode démo' });
   const t0 = Date.now();
   try {
     const [caves, wines, journal, meta] = await Promise.all([
       pool.query('SELECT id, data FROM caves ORDER BY id'),
-      pool.query('SELECT id, cave_id, photo, data FROM wines ORDER BY id'),
+      pool.query('SELECT id, cave_id, (photo IS NOT NULL) AS has_photo, data FROM wines ORDER BY id'),
       pool.query('SELECT entry FROM journal ORDER BY created_at, id'),
       pool.query("SELECT ncave, nwine, stats FROM app_meta WHERE id='main'"),
     ]);
     const m = meta.rows[0] || { ncave: 1, nwine: 1, stats: {} };
     const data = {
       caves:   caves.rows.map(rowToCave),
-      wines:   wines.rows.map(rowToWine),
+      wines:   wines.rows.map(r => ({ ...r.data, id: r.id, caveId: r.cave_id, hasPhoto: r.has_photo })),
       journal: journal.rows.map(r => r.entry),
       nCave:   m.ncave,
       nWine:   m.nwine,
@@ -124,7 +153,7 @@ app.get('/api/data', requireAuth, async (req, res) => {
       const { rows: urows } = await pool.query('SELECT api_key FROM users WHERE id=$1', [req.user.sub]);
       api_key = urows[0]?.api_key || null;
     }
-    console.log(`[DB] loadData: ${Date.now() - t0}ms (${data.wines.length}w ${data.caves.length}c)`);
+    console.log(`[DB] loadData: ${Date.now() - t0}ms (${data.wines.length}w ${data.caves.length}c, no-photos)`);
     res.json({ data, api_key });
   } catch (e) {
     console.error('getData error:', e);
@@ -132,50 +161,81 @@ app.get('/api/data', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/data → remplacement complet (premier sync / restauration), en transaction.
+// GET /api/photo/:id → une seule photo, à la demande
+app.get('/api/photo/:id', requireAuth, async (req, res) => {
+  if (req.user.demo_only) return res.status(403).json({ error: 'Accès réservé au mode démo' });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'id invalide' });
+  try {
+    const { rows } = await pool.query('SELECT photo FROM wines WHERE id=$1', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Vin introuvable' });
+    res.json({ photo: rows[0].photo || null });
+  } catch (e) {
+    console.error('getPhoto error:', e);
+    res.status(500).json({ error: 'Erreur lecture photo' });
+  }
+});
+
+// POST /api/data → resync complet, SANS TRUNCATE (préserve les photos), en transaction.
 app.post('/api/data', requireAuth, async (req, res) => {
   if (req.user.demo_only) return res.status(403).json({ error: 'Accès réservé au mode démo' });
   const { data } = req.body || {};
   if (!data) return res.status(400).json({ error: 'data manquant' });
 
-  const incWines = Array.isArray(data.wines) ? data.wines.length : 0;
-  const incCaves = Array.isArray(data.caves) ? data.caves.length : 0;
+  const inWines = Array.isArray(data.wines) ? data.wines : [];
+  const inCaves = Array.isArray(data.caves) ? data.caves : [];
+  const inJournal = Array.isArray(data.journal) ? data.journal : [];
 
   const client = await pool.connect();
   try {
-    // 🛡️ GARDE-FOU anti-écrasement (incident du 03/06/2026 : base vidée par un device au cache vide).
-    if (incWines === 0 && incCaves === 0) {
+    // 🛡️ GARDE-FOU anti-écrasement (incident du 03/06/2026).
+    if (inWines.length === 0 && inCaves.length === 0) {
       const { rows } = await client.query('SELECT (SELECT count(*) FROM wines) w, (SELECT count(*) FROM caves) c');
       if (Number(rows[0].w) > 0 || Number(rows[0].c) > 0) {
-        console.warn(`[GARDE-FOU] POST vide REFUSÉ : payload 0 vin/0 cave alors que la base contient ${rows[0].w} vins / ${rows[0].c} caves.`);
+        console.warn(`[GARDE-FOU] POST vide REFUSE : 0 vin/0 cave alors que la base contient ${rows[0].w} vins / ${rows[0].c} caves.`);
         return res.status(409).json({ error: 'Sauvegarde vide refusée : la base contient déjà des données. Rechargez l’application avant de sauvegarder.' });
       }
     }
 
     const t0 = Date.now();
     await client.query('BEGIN');
-    await client.query('TRUNCATE journal, wines, caves CASCADE');
 
-    for (const c of (data.caves || [])) {
-      await client.query('INSERT INTO caves (id, data) VALUES ($1, $2::jsonb)', [c.id, JSON.stringify(c)]);
+    for (const c of inCaves) {
+      await client.query(
+        `INSERT INTO caves (id, data, updated_at) VALUES ($1,$2::jsonb,NOW())
+         ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data, updated_at=NOW()`,
+        [c.id, JSON.stringify(c)]
+      );
     }
-    for (const w of (data.wines || [])) {
-      const r = wineToRow(w);
-      await client.query('INSERT INTO wines (id, cave_id, photo, data) VALUES ($1,$2,$3,$4::jsonb)',
-        [r.id, r.cave_id, r.photo, JSON.stringify(r.data)]);
+    const caveIds = inCaves.map(c => c.id);
+    if (caveIds.length) await client.query('DELETE FROM caves WHERE id <> ALL($1)', [caveIds]);
+    else                await client.query('DELETE FROM caves');
+
+    for (const w of inWines) await upsertWine(client, w);
+    const wineIds = inWines.map(w => w.id);
+    if (wineIds.length) await client.query('DELETE FROM wines WHERE id <> ALL($1)', [wineIds]);
+    else                await client.query('DELETE FROM wines');
+
+    for (const j of inJournal) {
+      await client.query(
+        `INSERT INTO journal (id, entry) VALUES ($1,$2::jsonb)
+         ON CONFLICT (id) DO UPDATE SET entry=EXCLUDED.entry`,
+        [String(j.id), JSON.stringify(j)]
+      );
     }
-    for (const j of (data.journal || [])) {
-      await client.query('INSERT INTO journal (id, entry) VALUES ($1,$2::jsonb) ON CONFLICT (id) DO UPDATE SET entry=EXCLUDED.entry',
-        [String(j.id), JSON.stringify(j)]);
-    }
+    const jIds = inJournal.map(j => String(j.id));
+    if (jIds.length) await client.query('DELETE FROM journal WHERE id <> ALL($1)', [jIds]);
+    else             await client.query('DELETE FROM journal');
+
     await client.query(
       `INSERT INTO app_meta (id, ncave, nwine, stats, updated_at)
        VALUES ('main',$1,$2,$3::jsonb,NOW())
        ON CONFLICT (id) DO UPDATE SET ncave=EXCLUDED.ncave, nwine=EXCLUDED.nwine, stats=EXCLUDED.stats, updated_at=NOW()`,
       [data.nCave ?? 1, data.nWine ?? 1, JSON.stringify(data.statsAnnuelles || {})]
     );
+
     await client.query('COMMIT');
-    console.log(`[DB] saveData(full): ${Date.now() - t0}ms`);
+    console.log(`[DB] saveData(full,no-truncate): ${Date.now() - t0}ms`);
     res.json({ ok: true, updated_at: new Date().toISOString() });
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
@@ -186,7 +246,7 @@ app.post('/api/data', requireAuth, async (req, res) => {
   }
 });
 
-// PATCH /api/data → mises à jour CIBLÉES (le cœur du gain anti-bloat)
+// PATCH /api/data → updates ciblés (photo préservée si absente du payload)
 app.patch('/api/data', requireAuth, async (req, res) => {
   if (req.user.demo_only) return res.status(403).json({ error: 'Accès réservé au mode démo' });
   const { meta, wines, deletedWineIds, caves, deletedCaveIds, journal } = req.body || {};
@@ -195,23 +255,12 @@ app.patch('/api/data', requireAuth, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Vins : upsert ciblé (une ligne chacun, la photo n'est réécrite que si elle change côté vin)
     if (Array.isArray(wines) && wines.length) {
-      for (const w of wines) {
-        const r = wineToRow(w);
-        await client.query(
-          `INSERT INTO wines (id, cave_id, photo, data, updated_at)
-           VALUES ($1,$2,$3,$4::jsonb,NOW())
-           ON CONFLICT (id) DO UPDATE
-             SET cave_id=EXCLUDED.cave_id, photo=EXCLUDED.photo, data=EXCLUDED.data, updated_at=NOW()`,
-          [r.id, r.cave_id, r.photo, JSON.stringify(r.data)]
-        );
-      }
+      for (const w of wines) await upsertWine(client, w);
     }
     if (Array.isArray(deletedWineIds) && deletedWineIds.length)
       await client.query('DELETE FROM wines WHERE id = ANY($1)', [deletedWineIds]);
 
-    // Caves
     if (Array.isArray(caves) && caves.length) {
       for (const c of caves) {
         await client.query(
@@ -224,7 +273,6 @@ app.patch('/api/data', requireAuth, async (req, res) => {
     if (Array.isArray(deletedCaveIds) && deletedCaveIds.length)
       await client.query('DELETE FROM caves WHERE id = ANY($1)', [deletedCaveIds]);
 
-    // Journal : upsert par id (édition d'un motif/commentaire ou nouvelle entrée)
     if (Array.isArray(journal) && journal.length) {
       for (const j of journal) {
         await client.query(
@@ -235,7 +283,6 @@ app.patch('/api/data', requireAuth, async (req, res) => {
       }
     }
 
-    // Meta : compteurs + merge statsAnnuelles (max par mois, comme la v1)
     if (meta) {
       const { rows } = await client.query("SELECT ncave, nwine, stats FROM app_meta WHERE id='main'");
       const cur = rows[0] || { ncave: 1, nwine: 1, stats: {} };
@@ -311,5 +358,5 @@ app.post('/api/ai', requireAuth, async (req, res) => {
 
 // ── Démarrage ─────────────────────────────────────────────────
 pool.connect()
-  .then(c => { c.release(); console.log('✅ Connecté à AIVEN PostgreSQL'); app.listen(PORT, () => console.log(`🍷 CAVAVIN backend v2 démarré sur le port ${PORT}`)); })
+  .then(c => { c.release(); console.log('✅ Connecté à AIVEN PostgreSQL'); app.listen(PORT, () => console.log(`🍷 CAVAVIN backend v3 (photos lazy) démarré sur le port ${PORT}`)); })
   .catch(e => { console.error('❌ Impossible de se connecter à la base :', e.message); process.exit(1); });
