@@ -7,8 +7,18 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Mes Caves">
 <meta name="theme-color" content="#F8F4EF">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <title>Mes Caves à Vin - iOS 17</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script>
+  // PWA : enregistrement du service worker (installable + hors-ligne)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./service-worker.js').catch(e => console.warn('SW non enregistré:', e));
+    });
+  }
+</script>
 <style>
 /* ═══════════════ iOS 17 DESIGN SYSTEM ═══════════════ */
 :root {
