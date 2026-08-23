@@ -1333,6 +1333,33 @@ function authHeaders(){
   return {'Content-Type':'application/json','Authorization':`Bearer ${_jwtToken}`};
 }
 
+// ─── LAZY LOADING PHOTOS ───────────────────────────────────────
+// Les photos ne sont plus chargées avec /api/data (trop lourd).
+// On va chercher chaque photo à la demande via /api/photo/:id,
+// avec un cache mémoire pour ne pas la recharger deux fois par session.
+const _photoCache = {};
+async function loadPhoto(wineId){
+  if(wineId==null) return null;
+  if(_photoCache[wineId]!==undefined) return _photoCache[wineId]; // déjà en cache (photo ou null)
+  if(isDemo||!_jwtToken) return null; // pas de fetch en démo/hors ligne
+  try{
+    const r = await apiFetch(`${API_URL}/api/photo/${wineId}`, { headers: authHeaders() });
+    if(!r.ok){ _photoCache[wineId]=null; return null; }
+    const d = await r.json();
+    _photoCache[wineId] = d.photo || null;
+    return _photoCache[wineId];
+  }catch(_){ return null; }
+}
+// Injecte la photo d'un vin dans un <img> une fois récupérée.
+// imgId = id de l'élément <img> à remplir ; wine = objet vin (doit avoir hasPhoto)
+async function fillPhoto(imgId, wine){
+  if(!wine || !wine.hasPhoto) return;
+  const b64 = wine.photo || await loadPhoto(wine.id);
+  if(!b64) return;
+  const el = document.getElementById(imgId);
+  if(el){ el.src = b64; el.style.display='block'; }
+}
+
 function lsKey(){return isDemo?'cavedb_demo':'cavedb';}
 
 // — Mur de login —
@@ -3291,8 +3318,12 @@ function editWine(id){
   // Bio toggle
   const bioEl=document.getElementById('add-bio');
   if(bioEl){bioEl.checked=!!w.biologique;const t=document.getElementById('add-bio-track');const th=document.getElementById('add-bio-thumb');if(t)t.style.background=w.biologique?'var(--rouge)':'var(--border)';if(th)th.style.transform=w.biologique?'translateX(16px)':'translateX(0)';}
-  // Photo existante
-  if(w.photo){bottleB64=w.photo;const prev=document.getElementById('pz-btl-prev');if(prev)prev.innerHTML=`<img src="${w.photo}" style="max-height:60px;border-radius:8px;">`;}
+  // Photo existante (lazy). On remplit UNIQUEMENT bottleB64 + l'aperçu, jamais w.photo
+  // (sinon faux "changement" au prochain sync). L'état 'kept' protège la photo en base.
+  _editPhotoState = (w.photo || w.hasPhoto) ? 'kept' : 'none';
+  const _applyEditPhoto=(b64)=>{ if(!b64) return; bottleB64=b64; const prev=document.getElementById('pz-btl-prev'); if(prev)prev.innerHTML=`<img src="${b64}" style="max-height:60px;border-radius:8px;">`; };
+  if(w.photo){ _applyEditPhoto(w.photo); }
+  else if(w.hasPhoto){ loadPhoto(w.id).then(_applyEditPhoto); }
   // UI mode édition : pointer sur cave actuelle
   activeCave=w.caveId;
   const btn=document.getElementById('add-submit-btn');if(btn)btn.textContent='💾 Enregistrer les modifications';
@@ -3316,6 +3347,7 @@ function resetAddForm(){
   _forcedPosition=null;_forcedPosDepth=0;
   _forcedPlacements=[];
   bottleB64=null;
+  _editPhotoState='none';
   selColor=null;
   editingWineId=null;
   _editBatchIds=[];
@@ -3391,7 +3423,6 @@ function saveWine(){
     carafage:isRhumBottle?null:(document.getElementById('add-carafage')?.value||null),
     scorePresse:parseInt(document.getElementById('add-score')?.value)||null,
     biologique:isRhumBottle?false:(bioEl?bioEl.checked:false),
-    photo:bottleB64||null,
     // Fenêtre d'apogée : manuelle > IA > null
     apogeeDebut:(()=>{if(isRhumBottle)return null;const m=parseInt(document.getElementById('add-apogee-debut')?.value)||null;const f=parseInt(document.getElementById('add-apogee-fin')?.value)||null;if(m&&f&&f>m)return m;return _aiApogeeDebut||null;})(),
     apogeeFin:(()=>{if(isRhumBottle)return null;const m=parseInt(document.getElementById('add-apogee-debut')?.value)||null;const f=parseInt(document.getElementById('add-apogee-fin')?.value)||null;if(m&&f&&f>m)return f;return _aiApogeeFin||null;})(),
@@ -3402,6 +3433,15 @@ function saveWine(){
     distillerie:isRhumBottle?(document.getElementById('add-distillerie')?.value.trim()||null):null,
     pays:isRhumBottle?(document.getElementById('add-pays')?.value.trim()||null):null,
   };
+  // ── PHOTO (lazy-safe) ──
+  //  'changed' → nouvelle photo (ou reprise) : on l'applique
+  //  'none'    → aucune photo : on force null
+  //  'kept'    → photo existante NON modifiée : on NE MET PAS la clé photo,
+  //              le backend préserve alors la photo déjà en base (même si le
+  //              chargement lazy n'a pas eu lieu → aucun risque d'effacement).
+  if(_editPhotoState==='changed'){ fields.photo = bottleB64 || null; }
+  else if(_editPhotoState==='none'){ fields.photo = null; }
+  // si 'kept' : on n'ajoute délibérément pas fields.photo
 
   // ── MODE ÉDITION ──
   if(editingWineId!==null){
@@ -5966,7 +6006,7 @@ function showDetail(id,fromChat=false){
   const pp=w.position?parsePos(w.position):null;
   const fromInv=currentPage==='inv'||fromChat;
   document.getElementById('detail-content').innerHTML=`
-    ${w.photo?`<div style="width:100%;background:rgba(0,0,0,.05);border-radius:10px;margin-bottom:${fromInv?'8':'14'}px;display:flex;align-items:center;justify-content:center;overflow:hidden;max-height:${fromInv?'140':'240'}px;"><img src="${w.photo}" style="max-width:100%;max-height:${fromInv?'140':'240'}px;object-fit:contain;display:block;"></div>`:''}
+    ${(w.photo||w.hasPhoto)?`<div style="width:100%;background:rgba(0,0,0,.05);border-radius:10px;margin-bottom:${fromInv?'8':'14'}px;display:flex;align-items:center;justify-content:center;overflow:hidden;max-height:${fromInv?'140':'240'}px;"><img id="detail-photo-img" src="${w.photo||''}" style="max-width:100%;max-height:${fromInv?'140':'240'}px;object-fit:contain;display:${w.photo?'block':'none'};"></div>`:''}
     <span class="badge ${w.couleur}">${colorLabel(w.couleur)}</span>
     <div style="font-family:'Cormorant Garamond',serif;font-size:${fromInv?'18':'22'}px;font-weight:600;margin:${fromInv?'5px 0 2px':'8px 0 4px'};">${w.nom||'—'}</div>
     ${w.couleur!=='rhum'&&w.millesime?`<div style="font-size:${fromInv?'14':'18'}px;color:var(--ink2);margin-bottom:${fromInv?'8':'12'}px;">${w.millesime}</div>`:''}
@@ -6021,6 +6061,9 @@ function showDetail(id,fromChat=false){
     ${w.dateAchat||w.lieuAchat?`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:12px;color:var(--ink2);">🛒 Achat</span><span style="font-size:13px;font-weight:500;">${[w.dateAchat?new Date(w.dateAchat).toLocaleDateString('fr-FR'):null,w.lieuAchat].filter(Boolean).join(' · ')}</span></div>`:''}
     ${w.notes?`<div style="margin-top:10px;padding:10px;background:var(--paper2);border-radius:10px;font-size:12px;color:var(--ink2);font-style:italic;">"${w.notes}"</div>`:''}
     ${buildMiniCaveSchema(w,0)}`;
+  // Charger la photo à la demande (lazy). On ne stocke PAS la photo sur l'objet vin
+  // pour éviter un faux "changement" qui re-téléverserait la photo au prochain sync.
+  if(w.hasPhoto && !w.photo){ fillPhoto('detail-photo-img', w); }
   // Boutons dans le footer fixe (toujours visibles, non affectés par la longueur du contenu)
   const isRhumDetail=w.couleur==='rhum';
   document.getElementById('detail-footer').innerHTML=`
@@ -6107,6 +6150,7 @@ function removeWineFromAccord(id){
 // → permet de marquer prixIA=true sur le vin sauvegardé
 // ═══════════════════════════════════════════
 let bottleB64=null;
+let _editPhotoState='none'; // 'none' (pas de photo) | 'kept' (photo existante à préserver) | 'changed' (nouvelle photo)
 let selColor=null;
 let _aiFilledPrix=null;    // prix estimé par IA lors du dernier doAiFill
 // ── Wizard millésimes manquants (déclarations déplacées avant initBackend) ──
@@ -6142,6 +6186,7 @@ function onBottlePhoto(e){
   const f=e.target.files[0];if(!f)return;
   const r=new FileReader();r.onload=async ev=>{
     bottleB64=await resizeImage(ev.target.result,600);
+    _editPhotoState='changed';
     document.getElementById('pz-btl-prev').innerHTML=`<img src="${bottleB64}" style="max-width:100%;border-radius:10px;pointer-events:none;">`;
     document.getElementById('ai-fill-btn').style.display='block';
   };r.readAsDataURL(f);
@@ -6307,6 +6352,7 @@ function captureFromCamera(){
   stopCamera();
   if(target==='bottle'){
     bottleB64=b64;
+    _editPhotoState='changed';
     document.getElementById('pz-btl-prev').innerHTML=`<img src="${b64}" style="max-width:100%;border-radius:10px;">`;
     document.getElementById('ai-fill-btn').style.display='block';
   }else if(target==='chat'){
