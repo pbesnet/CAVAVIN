@@ -2368,6 +2368,7 @@ function renderPage(){
   }
   updateTopbarSel();updateSidebarCaves();
   nav('supercave');
+  try{ _showApogeeBanner(); }catch(_){}
 }
 
 let _pendingSync=false; // true si des changements n'ont pas encore été envoyés
@@ -5352,6 +5353,49 @@ function maturiteStatus(w){
   if(now>=mid)return'apogee';
   if(now>=d)return'debut_apogee';
   return'maturation';
+}
+
+// ─── BANDEAU RAPPEL APOGÉE (résumé non-intrusif à l'ouverture) ───
+// S'affiche une seule fois par session, uniquement s'il y a des vins à signaler,
+// et disparaît tout seul. Aucune action requise de l'utilisateur.
+let _apogeeBannerShown=false;
+function _showApogeeBanner(){
+  if(_apogeeBannerShown||isDemo) return;
+  if(!db.wines||!db.wines.length) return;          // attendre le chargement des données
+  _apogeeBannerShown=true;                          // on tente une fois, données présentes
+  const now=new Date().getFullYear();
+  let entrent=0, urgence=0;
+  for(const w of db.wines){
+    const s=maturiteStatus(w);
+    if(!s) continue;
+    if(s==='debut_apogee') entrent++;
+    else if(s==='declin') urgence++;                // apogée dépassée
+    else if(w.apogeeFin===now) urgence++;           // dernière année d'apogée = à boire cette année
+  }
+  if(entrent===0 && urgence===0) return;            // rien à signaler → pas de bandeau
+
+  const parts=[];
+  if(urgence>0) parts.push(`🍷 <b>${urgence}</b> à boire ${urgence>1?'bientôt':'bientôt'}`);
+  if(entrent>0) parts.push(`🌟 <b>${entrent}</b> ${entrent>1?'entrent':'entre'} en apogée`);
+  const msg=parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+  const accent = urgence>0 ? '#8B1A2E' : '#3E6B48'; // rouge si urgence, vert sinon
+
+  const el=document.createElement('div');
+  el.id='apogee-banner';
+  el.innerHTML=msg;
+  el.style.cssText=`position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:50%;transform:translateX(-50%) translateY(-16px);z-index:9999;max-width:92%;background:${accent};color:#F0E6D2;font-family:'Outfit',sans-serif;font-size:13.5px;font-weight:500;padding:11px 18px;border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.28);opacity:0;transition:opacity .35s ease, transform .35s ease;pointer-events:auto;text-align:center;line-height:1.5;`;
+  document.body.appendChild(el);
+  // apparition
+  requestAnimationFrame(()=>{ el.style.opacity='1'; el.style.transform='translateX(-50%) translateY(0)'; });
+  // tap pour fermer plus tôt (optionnel, non requis)
+  el.addEventListener('click',()=>_hideApogeeBanner(el));
+  // disparition auto après 7 s
+  setTimeout(()=>_hideApogeeBanner(el), 7000);
+}
+function _hideApogeeBanner(el){
+  if(!el||!el.parentNode) return;
+  el.style.opacity='0'; el.style.transform='translateX(-50%) translateY(-16px)';
+  setTimeout(()=>{ el.remove(); }, 400);
 }
 const MATURITE_CFG={
   maturation: {color:'#4CAF50',label:'En maturation', title:'Vin encore jeune — laisser vieillir jusqu\'en '},
