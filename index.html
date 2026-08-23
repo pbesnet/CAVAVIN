@@ -6233,6 +6233,41 @@ function deleteWineError(ids){
   renderSettings();
 }
 
+// ─── JOURNAL D'ACTIVITÉ (qui a fait quoi) ──────────────────────
+function _esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function _timeAgo(ts){
+  try{
+    const d=new Date(ts),now=new Date(),s=Math.floor((now-d)/1000);
+    if(s<60)return"à l'instant";
+    if(s<3600)return`il y a ${Math.floor(s/60)} min`;
+    if(s<86400)return`il y a ${Math.floor(s/3600)} h`;
+    if(s<172800)return'hier';
+    return d.toLocaleDateString('fr-FR')+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  }catch(_){return'';}
+}
+async function _loadActivity(){
+  const el=document.getElementById('activity-feed');
+  if(!el||isDemo||!_jwtToken)return;
+  const AV={add:'🍾',edit:'✏️',remove:'🗑️',cave_add:'📦',cave_edit:'📦',cave_remove:'🗑️',sync:'🔄'};
+  const AL={add:'a ajouté',edit:'a modifié',remove:'a retiré',cave_add:'a créé la cave',cave_edit:'a modifié la cave',cave_remove:'a supprimé la cave',sync:'a synchronisé'};
+  try{
+    const r=await apiFetch(`${API_URL}/api/activity`,{headers:authHeaders()});
+    const d=await r.json();
+    const acts=d.activity||[];
+    if(!acts.length){el.innerHTML='<div style="color:var(--ink3);font-size:12px;">Aucune activité enregistrée pour l\'instant.</div>';return;}
+    el.innerHTML=acts.map(a=>{
+      const who=_esc((a.user_email||'?').split('@')[0]);
+      const ic=AV[a.action]||'•';
+      const act=AL[a.action]||_esc(a.action);
+      const lbl=a.label?` <span style="color:var(--ink2);">${_esc(a.label)}</span>`:'';
+      return `<div style="display:flex;gap:9px;padding:8px 0;border-bottom:1px solid var(--border);align-items:flex-start;">
+        <span style="flex-shrink:0;">${ic}</span>
+        <span style="flex:1;min-width:0;line-height:1.45;font-size:13px;"><b>${who}</b> ${act}${lbl}<br><span style="font-size:11px;color:var(--ink3);">${_timeAgo(a.ts)}</span></span>
+      </div>`;
+    }).join('');
+  }catch(e){ el.innerHTML='<div style="color:var(--ink3);font-size:12px;">Impossible de charger l\'activité.</div>'; }
+}
+
 function removeWineFromAccord(id){
   if(!confirm('Retirer cette bouteille de la cave ?'))return;
   const wine=db.wines.find(w=>w.id===id);
@@ -6599,7 +6634,19 @@ function renderSettings(){
       </div>`;
   }
 
-  list.innerHTML=z+correctionSection+maturiteSection+statsSection+backupSection+cloudSection;
+  // Encart journal d'activité (qui a fait quoi) — visible pour tout compte connecté
+  let activitySection='';
+  if(currentUser && !isDemo){
+    activitySection=`
+      <div style="background:var(--white);border-radius:12px;padding:16px;box-shadow:var(--shadow-s);margin-bottom:12px;">
+        <div style="font-size:12px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">📜 Activité récente</div>
+        <div style="font-size:11px;color:var(--ink3);margin-bottom:8px;">Qui a ajouté, modifié ou retiré des bouteilles.</div>
+        <div id="activity-feed" style="max-height:340px;overflow-y:auto;-webkit-overflow-scrolling:touch;">Chargement…</div>
+      </div>`;
+  }
+
+  list.innerHTML=z+activitySection+correctionSection+maturiteSection+statsSection+backupSection+cloudSection;
+  _loadActivity(); // remplit l'encart en asynchrone
   const lastBackup=localStorage.getItem('cavavin_last_backup');
   const infoEl=document.getElementById('backup-info');
   if(infoEl&&lastBackup){
