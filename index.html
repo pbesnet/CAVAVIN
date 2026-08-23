@@ -5921,10 +5921,18 @@ function renderInv(){
     });
     const matMap={};
     preWines.forEach(w=>{const st=maturiteStatus(w);if(st)matMap[st]=(matMap[st]||0)+1;});
+    // Compteur transversal "À boire" = déclin + dernière année d'apogée
+    const _nowY=new Date().getFullYear();
+    const aBoire=preWines.filter(w=>{const st=maturiteStatus(w);return st==='declin'||(st==='apogee'&&w.apogeeFin===_nowY);}).length;
     const presentMat=MAT_ORDER.filter(m=>matMap[m]);
-    if(presentMat.length>1){
+    if(presentMat.length>1 || aBoire>0){
       matBar.style.display='flex';
+      const aBoireActive=invMaturiteFilter==='a_boire';
+      const btnABoire = aBoire>0
+        ? `<button onclick="setInvMaturite('a_boire')" class="btn ft" style="white-space:nowrap;border-radius:99px;padding:5px 12px;font-size:11px;flex-shrink:0;border:none;cursor:pointer;font-family:'Outfit',sans-serif;background:${aBoireActive?'#8B1A2E':'var(--paper2)'};color:${aBoireActive?'#fff':'var(--ink2)'};">🍷 À boire <span style="opacity:.7;">${aBoire}</span></button>`
+        : '';
       matBar.innerHTML=`<button onclick="setInvMaturite(null)" class="btn ${invMaturiteFilter===null?'btn-primary':'btn-secondary'} ft" style="white-space:nowrap;border-radius:99px;padding:5px 12px;font-size:11px;flex-shrink:0;">Toutes</button>`
+        +btnABoire
         +presentMat.map(m=>{
           const active=invMaturiteFilter===m;
           return`<button onclick="setInvMaturite('${m}')" class="btn ft" style="white-space:nowrap;border-radius:99px;padding:5px 12px;font-size:11px;flex-shrink:0;border:none;cursor:pointer;font-family:'Outfit',sans-serif;background:${active?MAT_COLOR[m]:'var(--paper2)'};color:${active?'#fff':'var(--ink2)'};">${MAT_LABEL[m]} <span style="opacity:.7;">${matMap[m]}</span></button>`;
