@@ -81,6 +81,18 @@ async function upsertWine(client, w) {
   }
 }
 
+// Journal d'activité : enregistre qui a fait quoi. Ne casse JAMAIS la mutation
+// en cas d'échec (ex: table absente) — le log est secondaire.
+async function logActivity(client, email, action, wineId, label){
+  try{
+    await client.query(
+      'INSERT INTO activity (user_email, action, wine_id, label) VALUES ($1,$2,$3,$4)',
+      [email || '?', action, wineId || null, label || null]
+    );
+  }catch(_){ /* silencieux : la mutation prime sur le log */ }
+}
+function wineLabel(w){ return `${w.nom||'(sans nom)'}${w.millesime?' '+w.millesime:''}`; }
+
 // ── Health check ──────────────────────────────────────────────
 app.get('/api/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
@@ -176,6 +188,20 @@ app.get('/api/photo/:id', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/activity → journal "qui a fait quoi" (100 dernières actions)
+app.get('/api/activity', requireAuth, async (req, res) => {
+  if (req.user.demo_only) return res.status(403).json({ error: 'Accès réservé au mode démo' });
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, ts, user_email, action, wine_id, label FROM activity ORDER BY ts DESC LIMIT 100'
+    );
+    res.json({ activity: rows });
+  } catch (e) {
+    console.error('getActivity error:', e);
+    res.status(500).json({ error: 'Erreur lecture activité' });
+  }
+});
+
 // POST /api/data → resync complet, SANS TRUNCATE (préserve les photos), en transaction.
 app.post('/api/data', requireAuth, async (req, res) => {
   if (req.user.demo_only) return res.status(403).json({ error: 'Accès réservé au mode démo' });
@@ -256,22 +282,44 @@ app.patch('/api/data', requireAuth, async (req, res) => {
     await client.query('BEGIN');
 
     if (Array.isArray(wines) && wines.length) {
-      for (const w of wines) await upsertWine(client, w);
+      // Distinguer ajout vs modification : quels ids existent déjà ?
+      const existing = new Set(
+        (await client.query('SELECT id FROM wines WHERE id = ANY($1)', [wines.map(w=>w.id)])).rows.map(r=>r.id)
+      );
+      for (const w of wines) {
+        await upsertWine(client, w);
+        await logActivity(client, req.user.email, existing.has(w.id)?'edit':'add', w.id, wineLabel(w));
+      }
     }
-    if (Array.isArray(deletedWineIds) && deletedWineIds.length)
+    if (Array.isArray(deletedWineIds) && deletedWineIds.length) {
+      // Récupérer les noms AVANT suppression pour un journal lisible
+      const del = (await client.query('SELECT id, data FROM wines WHERE id = ANY($1)', [deletedWineIds])).rows;
+      for (const r of del) {
+        const nom = (r.data && r.data.nom) || '(sans nom)';
+        const mil = (r.data && r.data.millesime) ? ' '+r.data.millesime : '';
+        await logActivity(client, req.user.email, 'remove', r.id, nom+mil);
+      }
       await client.query('DELETE FROM wines WHERE id = ANY($1)', [deletedWineIds]);
+    }
 
     if (Array.isArray(caves) && caves.length) {
+      const existingC = new Set(
+        (await client.query('SELECT id FROM caves WHERE id = ANY($1)', [caves.map(c=>c.id)])).rows.map(r=>r.id)
+      );
       for (const c of caves) {
         await client.query(
           `INSERT INTO caves (id, data, updated_at) VALUES ($1,$2::jsonb,NOW())
            ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data, updated_at=NOW()`,
           [c.id, JSON.stringify(c)]
         );
+        await logActivity(client, req.user.email, existingC.has(c.id)?'cave_edit':'cave_add', c.id, c.name||('Cave '+c.id));
       }
     }
-    if (Array.isArray(deletedCaveIds) && deletedCaveIds.length)
+    if (Array.isArray(deletedCaveIds) && deletedCaveIds.length) {
+      const delc = (await client.query('SELECT id, data FROM caves WHERE id = ANY($1)', [deletedCaveIds])).rows;
+      for (const r of delc) await logActivity(client, req.user.email, 'cave_remove', r.id, (r.data&&r.data.name)||('Cave '+r.id));
       await client.query('DELETE FROM caves WHERE id = ANY($1)', [deletedCaveIds]);
+    }
 
     if (Array.isArray(journal) && journal.length) {
       for (const j of journal) {
@@ -358,5 +406,5 @@ app.post('/api/ai', requireAuth, async (req, res) => {
 
 // ── Démarrage ─────────────────────────────────────────────────
 pool.connect()
-  .then(c => { c.release(); console.log('✅ Connecté à AIVEN PostgreSQL'); app.listen(PORT, () => console.log(`🍷 CAVAVIN backend v3 (photos lazy) démarré sur le port ${PORT}`)); })
+  .then(c => { c.release(); console.log('✅ Connecté à AIVEN PostgreSQL'); app.listen(PORT, () => console.log(`🍷 CAVAVIN backend v4 (activité) démarré sur le port ${PORT}`)); })
   .catch(e => { console.error('❌ Impossible de se connecter à la base :', e.message); process.exit(1); });
