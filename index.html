@@ -5379,18 +5379,27 @@ function _showApogeeBanner(){
   if(entrent>0) parts.push(`🌟 <b>${entrent}</b> ${entrent>1?'entrent':'entre'} en apogée`);
   const msg=parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;');
   const accent = urgence>0 ? '#8B1A2E' : '#3E6B48'; // rouge si urgence, vert sinon
+  const kind = urgence>0 ? 'urgence' : 'entrent';   // catégorie prioritaire au clic
 
   const el=document.createElement('div');
   el.id='apogee-banner';
-  el.innerHTML=msg;
-  el.style.cssText=`position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:50%;transform:translateX(-50%) translateY(-16px);z-index:9999;max-width:92%;background:${accent};color:#F0E6D2;font-family:'Outfit',sans-serif;font-size:13.5px;font-weight:500;padding:11px 18px;border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.28);opacity:0;transition:opacity .35s ease, transform .35s ease;pointer-events:auto;text-align:center;line-height:1.5;`;
+  el.innerHTML=`${msg}&nbsp;&nbsp;<span style="opacity:.75;font-size:12px;">👆&nbsp;voir</span>`;
+  el.style.cssText=`position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:50%;transform:translateX(-50%) translateY(-16px);z-index:9999;max-width:92%;background:${accent};color:#F0E6D2;font-family:'Outfit',sans-serif;font-size:13.5px;font-weight:500;padding:11px 18px;border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.28);opacity:0;transition:opacity .35s ease, transform .35s ease;pointer-events:auto;text-align:center;line-height:1.5;cursor:pointer;`;
   document.body.appendChild(el);
   // apparition
   requestAnimationFrame(()=>{ el.style.opacity='1'; el.style.transform='translateX(-50%) translateY(0)'; });
-  // tap pour fermer plus tôt (optionnel, non requis)
-  el.addEventListener('click',()=>_hideApogeeBanner(el));
+  // clic → liste des vins concernés (catégorie prioritaire)
+  el.addEventListener('click',()=>{ _gotoApogeeList(kind); _hideApogeeBanner(el); });
   // disparition auto après 7 s
   setTimeout(()=>_hideApogeeBanner(el), 7000);
+}
+// Ouvre l'inventaire filtré sur les vins concernés par le rappel d'apogée
+function _gotoApogeeList(kind){
+  invFilter='tous'; invCaveFilter=null; invRegionFilter=null; invRhumTypeFilter=null;
+  invMaturiteFilter = (kind==='urgence') ? 'a_boire' : 'debut_apogee';
+  try{ _saveInvFilters(); }catch(_){}
+  nav('inv');
+  try{ renderInv(); }catch(_){}
 }
 function _hideApogeeBanner(el){
   if(!el||!el.parentNode) return;
@@ -5823,7 +5832,7 @@ function _showInvFilterOverlay(){
   const cLabels={rouge:'🍷 Rouge',blanc:'🥂 Blanc',rose:'🌸 Rosé',champagne:'✨ Champagne'};
   if(invFilter!=='tous')chips.push(cLabels[invFilter]||invFilter);
   if(invRegionFilter)chips.push('🗺️ '+invRegionFilter);
-  const mLabels={maturation:'🟢 Maturation',debut_apogee:'🟡 Début apogée',apogee:'🟠 Apogée',declin:'🔴 Déclin'};
+  const mLabels={maturation:'🟢 Maturation',debut_apogee:'🟡 Début apogée',apogee:'🟠 Apogée',declin:'🔴 Déclin',a_boire:'🍷 À boire'};
   if(invMaturiteFilter)chips.push(mLabels[invMaturiteFilter]||invMaturiteFilter);
   if(!chips.length)return;
   const ov=document.createElement('div');
@@ -5928,7 +5937,7 @@ function renderInv(){
     if(invCaveFilter!==null&&w.caveId!==invCaveFilter)return false;
     if(invFilter!=='tous'&&w.couleur!==invFilter)return false;
     if(invRegionFilter!==null&&w.region!==invRegionFilter)return false;
-    if(invMaturiteFilter!==null){if(w.couleur==='rhum')return false;if(maturiteStatus(w)!==invMaturiteFilter)return false;}
+    if(invMaturiteFilter!==null){if(w.couleur==='rhum')return false;const _st=maturiteStatus(w);if(invMaturiteFilter==='a_boire'){const _ny=new Date().getFullYear();if(!(_st==='declin'||(_st==='apogee'&&w.apogeeFin===_ny)))return false;}else if(_st!==invMaturiteFilter)return false;}
     if(invRhumTypeFilter!==null&&w.rhumType!==invRhumTypeFilter)return false;
     if(q){
       const searchStr=w.couleur==='rhum'
