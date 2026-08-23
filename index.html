@@ -6205,6 +6205,26 @@ function removeWine(id){
   showToast((!currentUser||isDemo)?'💾 Bouteille retirée (hors ligne)':'🗑️ Bouteille retirée');
 }
 
+// ─── SUPPRESSION D'ERREUR (admin) ──────────────────────────────
+// Retire des bouteilles ajoutées PAR ERREUR : suppression pure, SANS
+// entrée journal ni impact sur les statistiques (≠ removeWine qui = sortie).
+function deleteSelectedErrors(){
+  const ids=Array.from(document.querySelectorAll('.err-fix-cb:checked'))
+    .map(cb=>parseInt(cb.value)).filter(n=>!isNaN(n));
+  if(!ids.length){showToast('Aucune bouteille sélectionnée');return;}
+  deleteWineError(ids);
+}
+function deleteWineError(ids){
+  if(!isAdmin){showToast('Réservé à l\'admin');return;}
+  const wines=db.wines.filter(w=>ids.includes(w.id));
+  if(!wines.length)return;
+  if(!confirm(`Supprimer définitivement ${wines.length} bouteille(s) ajoutée(s) par erreur ?\n\n⚠️ Action irréversible.\nAucune sortie ne sera enregistrée dans le journal, les statistiques ne changent pas.`))return;
+  db.wines=db.wines.filter(w=>!ids.includes(w.id)); // suppression pure (pas de sortie, pas de trackMouvement)
+  dbSave();
+  showToast(`🗑️ ${wines.length} entrée(s) supprimée(s)`);
+  renderSettings();
+}
+
 function removeWineFromAccord(id){
   if(!confirm('Retirer cette bouteille de la cave ?'))return;
   const wine=db.wines.find(w=>w.id===id);
@@ -6544,7 +6564,33 @@ function renderSettings(){
       <div id="backup-info" style="font-size:11px;color:var(--ink3);margin-top:10px;text-align:center;"></div>
     </div>`;
 
-  list.innerHTML=z+maturiteSection+statsSection+backupSection+cloudSection;
+  // Section admin : corriger des entrées ajoutées par erreur
+  let correctionSection='';
+  if(isAdmin){
+    const recent=[...db.wines].sort((a,b)=>{
+      const ta=a.addedAt?new Date(a.addedAt).getTime():0;
+      const tb=b.addedAt?new Date(b.addedAt).getTime():0;
+      return tb-ta; // plus récents d'abord (= erreurs récentes en haut)
+    }).slice(0,40);
+    const rows=recent.map(w=>{
+      const cave=getCave(w.caveId);
+      const dateStr=w.addedAt?new Date(w.addedAt).toLocaleDateString('fr-FR'):'date inconnue';
+      const label=`${w.nom||'(sans nom)'}${w.millesime?' '+w.millesime:''}`;
+      return `<label style="display:flex;align-items:center;gap:10px;padding:9px 8px;border-bottom:1px solid var(--border);cursor:pointer;">
+        <input type="checkbox" class="err-fix-cb" value="${w.id}" style="width:18px;height:18px;flex-shrink:0;accent-color:#8B1A2E;">
+        <span style="flex:1;min-width:0;font-size:13px;"><span style="font-weight:500;">${label}</span><br><span style="font-size:11px;color:var(--ink3);">${cave?cave.name:'?'} · ajouté le ${dateStr}</span></span>
+      </label>`;
+    }).join('');
+    correctionSection=`
+      <div style="background:var(--white);border-radius:12px;padding:16px;box-shadow:var(--shadow-s);margin-bottom:12px;">
+        <div style="font-size:12px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🛠️ Corriger des entrées (admin)</div>
+        <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5;">Supprime définitivement des bouteilles ajoutées <b>par erreur</b>. Contrairement à « Retirer », cela <b>n'enregistre aucune sortie</b> et ne modifie pas les statistiques. Les ajouts les plus récents sont en haut.</div>
+        <div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;">${rows||'<div style="padding:14px;color:var(--ink3);font-size:12px;">Aucun vin.</div>'}</div>
+        <button class="btn" onclick="deleteSelectedErrors()" style="width:100%;background:#8B1A2E;color:#fff;font-weight:600;">🗑️ Supprimer la sélection</button>
+      </div>`;
+  }
+
+  list.innerHTML=z+correctionSection+maturiteSection+statsSection+backupSection+cloudSection;
   const lastBackup=localStorage.getItem('cavavin_last_backup');
   const infoEl=document.getElementById('backup-info');
   if(infoEl&&lastBackup){
