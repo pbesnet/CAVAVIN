@@ -5754,7 +5754,7 @@ let _maturiteAbort=false;
 // Version de l'algorithme d'apogée. Incrémenter à chaque amélioration du prompt/logique :
 // au prochain recalcul "normal", tous les vins d'une version antérieure sont revalidés
 // une fois, puis figés à la version courante (plus de divergence ensuite).
-const APOGEE_ALGO_VERSION=2;
+const APOGEE_ALGO_VERSION=3;
 // Signature des paramètres qui influencent l'apogée : si elle change, on recalcule.
 function _apogeeSig(w){return _norm([w.millesime,w.couleur,w.region,w.appellation,w.cepage,w.producteur].join('|'));}
 // Un vin doit-il être (re)calculé en mode normal ?
@@ -5767,45 +5767,50 @@ function _needsApogeeUpdate(w){
   return false;                                             // déjà à jour → on ne touche pas
 }
 
-// Traite les vins UN PAR UN avec un délai entre chaque appel pour ne pas saturer l'API.
-// Sauvegarde toutes les SAVE_EVERY vins pour limiter les écritures.
+// Traite les vins par GROUPE de bouteilles identiques (même signature) : une seule
+// évaluation IA par vin unique, appliquée à toutes ses bouteilles → cohérence garantie.
 async function estimateMaturiteAI(wineIds,onProgress=null){
   if(!_jwtToken||!currentUser)return 0;
-  const wines=wineIds
+  const cibles=wineIds
     .map(id=>db.wines.find(w=>w.id===id))
     .filter(Boolean)
     .filter(w=>w.couleur!=='rhum')
     .filter(w=>!w.maturiteManuelle); // ne pas écraser une valeur saisie manuellement
-  if(!wines.length)return 0;
+  if(!cibles.length)return 0;
+  // Signatures uniques à traiter
+  const sigs=[...new Set(cibles.map(_apogeeSig))];
   _maturiteAbort=false;
-  let updated=0;
-  const DELAY_MS=150;   // pause entre deux appels API (évite le rate-limit)
-  const SAVE_EVERY=10;  // sauvegarde locale groupée toutes les N réponses
-  for(let i=0;i<wines.length;i++){
+  let updated=0,done=0;
+  const DELAY_MS=150,SAVE_EVERY=5;
+  // Applique une apogée à TOUTES les bouteilles d'une signature (hors rhum / saisie manuelle)
+  const applyToSig=(sig,ad,af)=>{
+    let c=0;
+    db.wines.filter(w=>w.couleur!=='rhum'&&!w.maturiteManuelle&&_apogeeSig(w)===sig).forEach(w=>{
+      w.apogeeDebut=ad;w.apogeeFin=af;w.maturiteUpdatedAt=new Date().toISOString();
+      w.maturiteHeuristique=false;w.apogeeAlgoV=APOGEE_ALGO_VERSION;w.apogeeSig=sig;c++;
+    });
+    return c;
+  };
+  for(const sig of sigs){
     if(_maturiteAbort)break;
-    const w=wines[i];
-    try{
-      const res=await estimateMaturiteAISingle(w);
-      if(res&&res.apogeeDebut&&res.apogeeFin){
-        w.apogeeDebut=res.apogeeDebut;
-        w.apogeeFin=res.apogeeFin;
-        w.maturiteUpdatedAt=new Date().toISOString();
-        w.maturiteHeuristique=false;
-        w.apogeeAlgoV=APOGEE_ALGO_VERSION;   // fige la version → plus de recalcul tant que l'algo ne change pas
-        w.apogeeSig=_apogeeSig(w);            // fige la signature → recalcul seulement si un paramètre change
-        updated++;
-      }
-    }catch(e){
-      console.warn('estimateMaturiteAI skip wine',w.id,e);
+    let ad=null,af=null,usedAI=false;
+    // Jumeau déjà évalué (version courante, apogée valide) → hériter sans rappeler l'IA
+    const twin=db.wines.find(w=>w.couleur!=='rhum'&&!w.maturiteManuelle&&(w.apogeeAlgoV||0)>=APOGEE_ALGO_VERSION&&w.apogeeDebut&&w.apogeeFin&&_apogeeSig(w)===sig);
+    if(twin){ad=twin.apogeeDebut;af=twin.apogeeFin;}
+    else{
+      const rep=db.wines.find(w=>w.couleur!=='rhum'&&_apogeeSig(w)===sig);
+      try{
+        const res=rep?await estimateMaturiteAISingle(rep):null;
+        if(res&&res.apogeeDebut&&res.apogeeFin){ad=res.apogeeDebut;af=res.apogeeFin;usedAI=true;}
+      }catch(e){console.warn('estimateMaturiteAI skip sig',e);}
     }
-    // Sauvegarde groupée
-    if((i+1)%SAVE_EVERY===0&&updated)dbSave();
-    // Callback progression
-    if(onProgress)onProgress(i+1,wines.length,updated);
-    // Pause pour laisser respirer l'event loop et l'API
-    if(i<wines.length-1)await new Promise(r=>setTimeout(r,DELAY_MS));
+    if(ad&&af)updated+=applyToSig(sig,ad,af);
+    done++;
+    if(done%SAVE_EVERY===0&&updated)dbSave();
+    if(onProgress)onProgress(done,sigs.length,updated);
+    if(usedAI&&done<sigs.length)await new Promise(r=>setTimeout(r,DELAY_MS));
   }
-  if(updated)dbSave(); // sauvegarde finale si reste
+  if(updated)dbSave();
   return updated;
 }
 
@@ -5827,10 +5832,10 @@ async function runMaturiteUpdate(force=false){
   const total=cibles.length;
   const activeBtn=force?btnForce:btn;
   if(btn)btn.disabled=true; if(btnForce)btnForce.disabled=true;
-  if(activeBtn)activeBtn.textContent=`⏳ 0 / ${total} vins…`;
+  if(activeBtn)activeBtn.textContent=`⏳ Analyse de ${total} vin${total>1?'s':''}…`;
   if(btnStop)btnStop.style.display='inline-block';
   const n=await estimateMaturiteAI(cibles.map(w=>w.id),(done,tot,upd)=>{
-    if(activeBtn)activeBtn.textContent=`⏳ ${done} / ${tot} — ${upd} mis à jour…`;
+    if(activeBtn)activeBtn.textContent=`⏳ ${done} / ${tot} vin${tot>1?'s':''} unique${tot>1?'s':''} — ${upd} bouteille${upd>1?'s':''}…`;
   });
   if(btnStop)btnStop.style.display='none';
   const wasStopped=_maturiteAbort;
@@ -6374,7 +6379,7 @@ function undoSelectedSorties(){
 function undoWineSortie(journalIds){
   if(!isAdmin){showToast('Réservé à l\'admin');return;}
   const idSet=new Set(journalIds);
-  const entries=db.journal.filter(j=>idSet.has(j.id)&&j.type==='sortie');
+  const entries=db.journal.filter(j=>idSet.has(j.id)&&(j.type==='sortie'||j.type==='degustation'));
   if(!entries.length)return;
   if(!confirm(`Annuler ${entries.length} sortie(s) ?\n\nLe(s) vin(s) ser(ont) remis en Cave Vrac (à repositionner ensuite), l'entrée de sortie sera supprimée et les statistiques corrigées.`))return;
   ensureVracCave();
@@ -6793,7 +6798,7 @@ function renderSettings(){
     const tabBtn=(id,label)=>`<button onclick="_setCorrectionTab('${id}')" class="btn ft" style="flex:1;font-size:12px;border-radius:8px;padding:7px 8px;border:none;cursor:pointer;font-family:'Outfit',sans-serif;background:${_correctionTab===id?'#284053':'var(--paper2)'};color:${_correctionTab===id?'#fff':'var(--ink2)'};">${label}</button>`;
     let body='';
     if(_correctionTab==='sorties'){
-      const sorties=[...db.journal].filter(j=>j.type==='sortie').sort((a,b)=>{
+      const sorties=[...db.journal].filter(j=>j.type==='sortie'||j.type==='degustation').sort((a,b)=>{
         const ta=a.date?new Date(a.date).getTime():0, tb=b.date?new Date(b.date).getTime():0;
         if(tb!==ta)return tb-ta;
         return (b.id||0)-(a.id||0);
@@ -6801,15 +6806,16 @@ function renderSettings(){
       const rows=sorties.map(j=>{
         const label=j.wineName||`${j.nom||'(sans nom)'}${j.millesime?' '+j.millesime:''}`;
         const dateStr=j.date?new Date(j.date).toLocaleDateString('fr-FR'):'date inconnue';
+        const typeLbl=j.type==='degustation'?'dégustation':'sortie';
         const motif=j.motif?` · ${_esc(j.motif)}`:'';
         return `<div onclick="_toggleSortiePick(this,${j.id})" style="display:flex;align-items:center;gap:11px;padding:11px 10px;border-bottom:1px solid var(--border);cursor:pointer;-webkit-tap-highlight-color:transparent;">
           <span class="err-box" style="width:22px;height:22px;border:2px solid #8B1A2E;border-radius:6px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;background:transparent;"></span>
-          <span style="flex:1;min-width:0;font-size:13px;"><span style="font-weight:500;">${_esc(label)}</span><br><span style="font-size:11px;color:var(--ink3);">sortie le ${dateStr}${motif}</span></span>
+          <span style="flex:1;min-width:0;font-size:13px;"><span style="font-weight:500;">${_esc(label)}</span><br><span style="font-size:11px;color:var(--ink3);">${typeLbl} le ${dateStr}${motif}</span></span>
         </div>`;
       }).join('');
       body=`
-        <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5;">Touche une sortie pour la sélectionner. <b>Annuler</b> une sortie remet le vin en <b>Cave Vrac</b> (à repositionner), supprime l'entrée du journal et corrige les statistiques. Certains détails (position, cépage, photo…) ne sont pas restaurés.</div>
-        <div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;-webkit-overflow-scrolling:touch;">${rows||'<div style="padding:14px;color:var(--ink3);font-size:12px;">Aucune sortie enregistrée.</div>'}</div>
+        <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5;">Touche une ligne pour la sélectionner. <b>Annuler</b> une sortie ou une dégustation remet le vin en <b>Cave Vrac</b> (à repositionner), supprime l'entrée du journal et corrige les statistiques. Certains détails (position, cépage, photo…) ne sont pas restaurés.</div>
+        <div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;-webkit-overflow-scrolling:touch;">${rows||'<div style="padding:14px;color:var(--ink3);font-size:12px;">Aucune sortie ni dégustation enregistrée.</div>'}</div>
         <button id="sortie-undo-btn" class="btn" onclick="undoSelectedSorties()" style="width:100%;background:#8B1A2E;color:#fff;font-weight:600;">↩️ Annuler la sélection</button>`;
     } else {
       const recent=[...db.wines].sort((a,b)=>{
@@ -6834,7 +6840,7 @@ function renderSettings(){
     correctionSection=`
       <div style="background:var(--white);border-radius:12px;padding:16px;box-shadow:var(--shadow-s);margin-bottom:12px;">
         <div style="font-size:12px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">🛠️ Corriger (admin)</div>
-        <div style="display:flex;gap:6px;margin-bottom:12px;">${tabBtn('entrees','➕ Entrées (ajouts)')}${tabBtn('sorties','↩️ Sorties (retraits)')}</div>
+        <div style="display:flex;gap:6px;margin-bottom:12px;">${tabBtn('entrees','➕ Entrées (ajouts)')}${tabBtn('sorties','↩️ Sorties / dégust.')}</div>
         ${body}
       </div>`;
   }
