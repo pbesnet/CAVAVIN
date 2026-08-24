@@ -1375,7 +1375,7 @@ function _fuzzyMatch(haystack,query){
     return hw.some(w=>w.includes(qword)||_lev(w,qword)<=seuil);
   });
 }
-function _wineText(w){return [w.nom,w.millesime,w.region,w.appellation,w.cepage,w.producteur,w.distillerie,w.pays].filter(Boolean).join(' ');}
+function _wineText(w){return [w.nom,w.millesime,w.region,w.appellation,w.cepage,w.producteur,w.distillerie,w.pays,w.lieuAchat].filter(Boolean).join(' ');}
 
 // Recherche sur l'accueil : filtre tous les vins et affiche une liste cliquable.
 function _scSearch(){
@@ -6079,8 +6079,8 @@ function renderInv(){
     if(invRhumTypeFilter!==null&&w.rhumType!==invRhumTypeFilter)return false;
     if(q){
       const searchStr=w.couleur==='rhum'
-        ?`${w.nom||''} ${w.distillerie||''} ${w.pays||''} ${w.rhumType||''} ${w.millesime||''}`
-        :`${w.nom||''} ${w.region||''} ${w.appellation||''} ${w.cepage||''} ${w.producteur||''} ${w.millesime||''}`;
+        ?`${w.nom||''} ${w.distillerie||''} ${w.pays||''} ${w.rhumType||''} ${w.millesime||''} ${w.lieuAchat||''}`
+        :`${w.nom||''} ${w.region||''} ${w.appellation||''} ${w.cepage||''} ${w.producteur||''} ${w.millesime||''} ${w.lieuAchat||''}`;
       if(!_fuzzyMatch(searchStr,q))return false;
     }
     return true;
