@@ -1387,15 +1387,34 @@ function _scSearch(){
   dash.style.display='none';res.style.display='';
   const matches=db.wines.filter(w=>_fuzzyMatch(_wineText(w),q)).slice(0,60);
   if(!matches.length){res.innerHTML=`<div style="text-align:center;color:var(--ink3);padding:34px 0;font-size:13px;">Aucun vin trouvé pour « ${_esc(q)} »</div>`;return;}
-  res.innerHTML=`<div style="font-size:11px;color:var(--ink3);margin-bottom:8px;">${matches.length} résultat${matches.length>1?'s':''}</div>`
-    +matches.map(w=>{
-      const cave=getCave(w.caveId);
-      const sub=[w.appellation||w.region,cave?cave.name:''].filter(Boolean).join(' · ');
-      return `<div onclick="showDetail(${w.id})" style="display:flex;align-items:center;gap:10px;padding:11px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px;cursor:pointer;background:var(--white);">
-        <span style="flex:1;min-width:0;"><span style="font-weight:600;font-size:14px;">${_esc(w.nom||'(sans nom)')}${w.millesime?' '+w.millesime:''}</span><br><span style="font-size:11px;color:var(--ink3);">${_esc(sub)}</span></span>
-        <span style="color:var(--ink3);flex-shrink:0;">›</span>
-      </div>`;
-    }).join('');
+  // Légende des statuts d'apogée (une fois, en haut)
+  const legende=Object.values(MATURITE_CFG).map(c=>
+    `<span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap;"><span style="width:8px;height:8px;border-radius:50%;background:${c.color};display:inline-block;"></span>${c.label}</span>`
+  ).join('&nbsp;&nbsp;');
+  const header=`<div style="font-size:11px;color:var(--ink3);margin-bottom:6px;">${matches.length} résultat${matches.length>1?'s':''}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:10px;color:var(--ink2);margin-bottom:12px;padding:8px 10px;background:var(--paper2);border-radius:8px;">${legende}</div>`;
+  res.innerHTML=header+matches.map(w=>{
+    const cave=getCave(w.caveId);
+    const isRhum=w.couleur==='rhum';
+    // Badge de statut d'apogée
+    const st=isRhum?null:maturiteStatus(w);
+    let badge='';
+    if(st){
+      const cfg=MATURITE_CFG[st];
+      badge=`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:${cfg.color}22;color:${cfg.color};white-space:nowrap;"><span style="width:7px;height:7px;border-radius:50%;background:${cfg.color};display:inline-block;"></span>${cfg.label}</span>`;
+    } else if(!isRhum){
+      badge=`<span style="font-size:10px;color:var(--ink3);white-space:nowrap;">apogée non définie</span>`;
+    }
+    // Sous-titre : producteur · appellation/région · cave
+    const sub=[w.producteur, w.appellation||w.region, cave?cave.name:''].filter(Boolean).join(' · ');
+    return `<div onclick="showDetail(${w.id})" style="display:flex;align-items:center;gap:10px;padding:11px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px;cursor:pointer;background:var(--white);">
+      <span style="flex:1;min-width:0;">
+        <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-weight:600;font-size:14px;">${_esc(w.nom||'(sans nom)')}${w.millesime?' '+w.millesime:''}</span>${badge}</span>
+        <span style="font-size:11px;color:var(--ink3);display:block;margin-top:3px;">${_esc(sub)||'—'}</span>
+      </span>
+      <span style="color:var(--ink3);flex-shrink:0;">›</span>
+    </div>`;
+  }).join('');
 }
 
 // ─── LAZY LOADING PHOTOS ───────────────────────────────────────
