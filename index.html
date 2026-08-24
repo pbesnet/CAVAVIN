@@ -1025,6 +1025,10 @@ div[onclick], span[onclick]{
       <!-- PAGE: SETTINGS -->
       <!-- PAGE: SUPERCAVE -->
       <div id="page-supercave" class="page">
+        <div style="padding:14px 14px 0;">
+          <input id="sc-search" type="text" placeholder="🔍 Rechercher un vin dans toutes les caves…" oninput="_scSearch()" style="width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:12px;background:var(--white);font-size:14px;font-family:'Outfit',sans-serif;color:var(--ink);outline:none;box-sizing:border-box;">
+        </div>
+        <div id="sc-results" style="padding:8px 14px 32px;display:none;"></div>
         <div id="supercave-content" style="padding:16px 14px 32px;"></div>
       </div>
 
@@ -1341,6 +1345,57 @@ let selectedEnv='prod';  // 'prod' ou 'demo' — sélecteur sur l'écran de logi
 // Headers d'authentification pour toutes les requêtes API
 function authHeaders(){
   return {'Content-Type':'application/json','Authorization':`Bearer ${_jwtToken}`};
+}
+
+// ─── RECHERCHE TOLÉRANTE (accents, casse, fautes de frappe) ─────
+// _norm : minuscules + suppression des accents. _lev : distance de Levenshtein.
+// _fuzzyMatch : vrai si la requête correspond, en tolérant 1-2 lettres par mot.
+function _norm(s){return String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();}
+function _lev(a,b){
+  const m=a.length,n=b.length;
+  if(!m)return n; if(!n)return m;
+  let prev=Array.from({length:n+1},(_,j)=>j),cur=new Array(n+1);
+  for(let i=1;i<=m;i++){
+    cur[0]=i;
+    for(let j=1;j<=n;j++){
+      cur[j]=a[i-1]===b[j-1]?prev[j-1]:1+Math.min(prev[j-1],prev[j],cur[j-1]);
+    }
+    [prev,cur]=[cur,prev];
+  }
+  return prev[n];
+}
+function _fuzzyMatch(haystack,query){
+  const h=_norm(haystack),q=_norm(query);
+  if(!q)return true;
+  if(h.includes(q))return true;                 // accents + casse + sous-chaîne
+  const hw=h.split(/\s+/).filter(Boolean),qw=q.split(/\s+/).filter(Boolean);
+  return qw.every(qword=>{
+    if(qword.length<=2)return hw.some(w=>w.includes(qword)); // mots très courts : sous-chaîne
+    const seuil=qword.length<=5?1:2;                          // tolérance : 1 à 2 fautes
+    return hw.some(w=>w.includes(qword)||_lev(w,qword)<=seuil);
+  });
+}
+function _wineText(w){return [w.nom,w.millesime,w.region,w.appellation,w.cepage,w.producteur,w.distillerie,w.pays].filter(Boolean).join(' ');}
+
+// Recherche sur l'accueil : filtre tous les vins et affiche une liste cliquable.
+function _scSearch(){
+  const q=(document.getElementById('sc-search')?.value||'').trim();
+  const res=document.getElementById('sc-results');
+  const dash=document.getElementById('supercave-content');
+  if(!res||!dash)return;
+  if(!q){res.style.display='none';res.innerHTML='';dash.style.display='';return;}
+  dash.style.display='none';res.style.display='';
+  const matches=db.wines.filter(w=>_fuzzyMatch(_wineText(w),q)).slice(0,60);
+  if(!matches.length){res.innerHTML=`<div style="text-align:center;color:var(--ink3);padding:34px 0;font-size:13px;">Aucun vin trouvé pour « ${_esc(q)} »</div>`;return;}
+  res.innerHTML=`<div style="font-size:11px;color:var(--ink3);margin-bottom:8px;">${matches.length} résultat${matches.length>1?'s':''}</div>`
+    +matches.map(w=>{
+      const cave=getCave(w.caveId);
+      const sub=[w.appellation||w.region,cave?cave.name:''].filter(Boolean).join(' · ');
+      return `<div onclick="showDetail(${w.id})" style="display:flex;align-items:center;gap:10px;padding:11px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px;cursor:pointer;background:var(--white);">
+        <span style="flex:1;min-width:0;"><span style="font-weight:600;font-size:14px;">${_esc(w.nom||'(sans nom)')}${w.millesime?' '+w.millesime:''}</span><br><span style="font-size:11px;color:var(--ink3);">${_esc(sub)}</span></span>
+        <span style="color:var(--ink3);flex-shrink:0;">›</span>
+      </div>`;
+    }).join('');
 }
 
 // ─── LAZY LOADING PHOTOS ───────────────────────────────────────
@@ -5940,7 +5995,7 @@ function renderInv(){
     }else{matBar.style.display='none';}
     if(isRhumContext)matBar.style.display='none'; // pas de maturité pour le rhum
   }
-  const q=(document.getElementById('inv-q')?.value||'').toLowerCase();
+  const q=(document.getElementById('inv-q')?.value||'');
   let wines=db.wines.filter(w=>{
     if(invCaveFilter!==null&&w.caveId!==invCaveFilter)return false;
     if(invFilter!=='tous'&&w.couleur!==invFilter)return false;
@@ -5949,9 +6004,9 @@ function renderInv(){
     if(invRhumTypeFilter!==null&&w.rhumType!==invRhumTypeFilter)return false;
     if(q){
       const searchStr=w.couleur==='rhum'
-        ?`${w.nom||''} ${w.distillerie||''} ${w.pays||''} ${w.rhumType||''}`.toLowerCase()
-        :`${w.nom||''} ${w.region||''} ${w.appellation||''} ${w.millesime||''}`.toLowerCase();
-      if(!searchStr.includes(q))return false;
+        ?`${w.nom||''} ${w.distillerie||''} ${w.pays||''} ${w.rhumType||''} ${w.millesime||''}`
+        :`${w.nom||''} ${w.region||''} ${w.appellation||''} ${w.cepage||''} ${w.producteur||''} ${w.millesime||''}`;
+      if(!_fuzzyMatch(searchStr,q))return false;
     }
     return true;
   });
@@ -7153,6 +7208,12 @@ function recoOpenAdd(i){
 function nav(page){
   // Fermer les panneaux flottants pour éviter que leurs backdrops bloquent les clics sidebar
   closeAccPanel();
+  // Vider les champs de recherche quand on change de page (repart à blanc)
+  if(page!==currentPage){
+    ['inv-q','acc-search','journal-search','sc-search'].forEach(id=>{const f=document.getElementById(id);if(f)f.value='';});
+    const _scr=document.getElementById('sc-results'); if(_scr){_scr.style.display='none';_scr.innerHTML='';}
+    const _scd=document.getElementById('supercave-content'); if(_scd)_scd.style.display='';
+  }
   // Quitter la page add sans sauvegarder → reset mode édition
   if(currentPage==='add'&&page!=='add'&&editingWineId!==null){
     editingWineId=null;
