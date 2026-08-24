@@ -12,7 +12,7 @@
 // ⚠️ Incrémente CACHE_VERSION à chaque déploiement de index.html pour forcer
 //    la mise à jour du cache chez les utilisateurs.
 // ═══════════════════════════════════════════════════════════════
-const CACHE_VERSION = 'cavavin-v4';
+const CACHE_VERSION = 'cavavin-v5';
 const SHELL = [
   './',
   './index.html',
