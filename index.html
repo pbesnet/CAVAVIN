@@ -2120,33 +2120,42 @@ function _sanitizeApogee(millesime,apogeeDebut,apogeeFin,couleur){
 }
 
 // Heuristique locale pour estimer l'apogée (utilisée à l'init démo, sans appel API)
-function computeApogeeHeuristic(couleur,region,millesime){
+function computeApogeeHeuristic(couleur,region,millesime,appellation,cepage){
   if(!millesime)return{apogeeDebut:null,apogeeFin:null};
-  const m=millesime;const r=(region||'').toLowerCase();
+  const m=millesime;
+  const txt=_norm(`${region||''} ${appellation||''} ${cepage||''}`);
+  const has=(...keys)=>keys.some(k=>txt.includes(_norm(k)));
   let d,f;
-  if(couleur==='champagne'){
-    if(r.includes('champagne'))d=m+5,f=m+20;
-    else d=m+4,f=m+12;
-  }else if(couleur==='rose'){
-    d=m+1;f=m+4;
+  if(couleur==='rose'||couleur==='rosé'){
+    d=m+0;f=m+2;                                   // rosés : à boire dans l'année, 2-3 ans max
+  }else if(couleur==='champagne'){
+    if(has('millesime','vintage','grand cru'))d=m+3,f=m+15; else d=m+1,f=m+8; // non-millésimé : jeune
   }else if(couleur==='blanc'){
-    if(r.includes('bourgogne'))         {d=m+4;f=m+15;}
-    else if(r.includes('alsace'))       {d=m+3;f=m+12;}
-    else if(r.includes('loire'))        {d=m+3;f=m+10;}
-    else if(r.includes('bordeaux'))     {d=m+4;f=m+14;}
-    else if(r.includes('rhône')||r.includes('rhone')){d=m+3;f=m+10;}
-    else{d=m+2;f=m+7;}
-  }else{// rouge
-    if(r.includes('bordeaux'))          {d=m+7;f=m+25;}
-    else if(r.includes('bourgogne'))    {d=m+6;f=m+18;}
-    else if(r.includes('rhône')||r.includes('rhone')){d=m+5;f=m+16;}
-    else if(r.includes('languedoc')||r.includes('roussillon')){d=m+3;f=m+10;}
-    else if(r.includes('beaujolais'))   {d=m+1;f=m+5;}
-    else if(r.includes('loire'))        {d=m+3;f=m+12;}
-    else if(r.includes('provence'))     {d=m+2;f=m+7;}
-    else if(r.includes('toscan')||r.includes('italie')){d=m+5;f=m+18;}
-    else if(r.includes('rioja')||r.includes('espagne')){d=m+4;f=m+14;}
-    else{d=m+3;f=m+12;}
+    // Garde TRÈS courte (aromatiques légers, à boire jeunes)
+    if(has('muscadet','picpoul','entre-deux-mers','gros plant','vinho verde','txakoli','aligoté','crépy'))        {d=m+0;f=m+3;}
+    // Garde courte (sauvignon, viognier, muscat…)
+    else if(has('sauvignon','sancerre','pouilly-fumé','pouilly fumé','quincy','reuilly','menetou','condrieu','viognier','muscat','colombard','jurançon sec','picpoul')) {d=m+1;f=m+4;}
+    // Chenin de garde / Riesling / Alsace de garde longue
+    else if(has('chenin','vouvray','savennières','montlouis','riesling','gewurztraminer','grand cru'))            {d=m+2;f=m+12;}
+    // Chardonnay Bourgogne
+    else if(has('bourgogne','chablis','meursault','puligny','chassagne','montrachet','mâcon','pouilly-fuissé','chardonnay')) {d=m+2;f=m+10;}
+    else if(has('bordeaux','pessac','graves'))     {d=m+2;f=m+8;}
+    else if(has('rhône','rhone','hermitage','châteauneuf')) {d=m+2;f=m+8;}
+    else if(has('alsace'))                          {d=m+1;f=m+6;}
+    else                                            {d=m+1;f=m+4;} // blanc générique : garde courte (précaution)
+  }else{ // rouge
+    // Garde courte (fruit, à boire jeunes)
+    if(has('beaujolais','gamay','primeur','nouveau'))                                                             {d=m+0;f=m+4;}
+    else if(has('bordeaux','médoc','medoc','saint-émilion','saint-emilion','pomerol','pauillac','margaux','saint-julien','saint-estèphe','pessac','graves','fronsac')) {d=m+5;f=m+20;}
+    else if(has('bourgogne','pommard','gevrey','nuits-saint-georges','vosne','chambertin','morey','volnay','beaune','pinot noir')) {d=m+4;f=m+15;}
+    else if(has('hermitage','côte-rôtie','cote-rotie','cornas','châteauneuf','chateauneuf','gigondas','vacqueyras','syrah','rhône nord','rhone nord')) {d=m+4;f=m+15;}
+    else if(has('rhône','rhone','côtes du rhône','cotes du rhone'))                                               {d=m+2;f=m+9;}
+    else if(has('languedoc','roussillon','minervois','corbières','corbieres','fitou','faugères'))                 {d=m+2;f=m+8;}
+    else if(has('loire','chinon','bourgueil','saumur','cabernet franc','anjou'))                                  {d=m+2;f=m+9;}
+    else if(has('provence'))                                                                                      {d=m+1;f=m+5;}
+    else if(has('toscane','toscan','chianti','brunello','barolo','barbaresco','italie','nebbiolo','sangiovese'))  {d=m+4;f=m+16;}
+    else if(has('rioja','ribera','espagne','tempranillo'))                                                        {d=m+3;f=m+14;}
+    else                                                                                                          {d=m+2;f=m+8;} // rouge générique : garde modérée
   }
   return{apogeeDebut:d,apogeeFin:f};
 }
@@ -2190,7 +2199,7 @@ function _initDemoDataSync(){
             const prix=rnd(DEMO_PRIX[src.couleur]||DEMO_PRIX.rouge);
             const note=src.notes?rnd(src.notes):null;
             const photo=generateDemoWinePhoto(nom,src.couleur,millesime);
-            const apogee=computeApogeeHeuristic(src.couleur,src.region,millesime);
+            const apogee=computeApogeeHeuristic(src.couleur,src.region,millesime,src.appellation||'',src.cepage||'');
             db.wines.push({
               id:db.nWine++,
               nom,couleur:src.couleur,region:src.region,
@@ -3758,7 +3767,7 @@ function saveWine(){
       const w=db.wines.find(x=>x.id===id);
       if(!w)return;
       const millesime=w.millesime||(new Date().getFullYear()-2);
-      const est=computeApogeeHeuristic(w.couleur||'rouge',w.region||'',millesime);
+      const est=computeApogeeHeuristic(w.couleur||'rouge',w.region||'',millesime,w.appellation||'',w.cepage||'');
       if(est.apogeeDebut&&est.apogeeFin){w.apogeeDebut=est.apogeeDebut;w.apogeeFin=est.apogeeFin;w.maturiteHeuristique=true;}
     });
     dbSave();
@@ -5697,7 +5706,7 @@ async function estimateMaturiteAISingle(wine){
   const nowYear=new Date().getFullYear();
   const vinAge=wine.millesime?(nowYear-wine.millesime):'?';
   // Ancrage : fourchette de garde typique (référentiel interne) pour stabiliser l'IA
-  const href=wine.millesime?computeApogeeHeuristic(wine.couleur,wine.region,wine.millesime):null;
+  const href=wine.millesime?computeApogeeHeuristic(wine.couleur,wine.region,wine.millesime,wine.appellation||'',wine.cepage||''):null;
   const ancrage=(href&&href.apogeeDebut&&href.apogeeFin)
     ? `\n— REPÈRE DE GARDE (référentiel de la cave, à affiner) —\nPour ce profil (couleur/région/millésime), la fenêtre de garde typique est d'environ ${href.apogeeDebut}–${href.apogeeFin}. Utilise-la comme point de départ et ajuste-la selon la réputation du millésime et le style du producteur ; ne t'en écarte fortement que si tu as une raison œnologique solide.`
     : '';
@@ -5709,11 +5718,17 @@ Vin : ${nomVin}
 Millésime : ${millesime}${wine.millesime?` (âge actuel : ${vinAge} an${vinAge!==1?'s':''})`:''} ${extrasStr}${ancrage}
 — MISSION —
 Détermine la fenêtre d'apogée de ce vin en te basant sur :
-1. La courbe de vieillissement typique de cette appellation et de ce style de vin
+1. La courbe de vieillissement typique de cette APPELLATION PRÉCISE (bien plus que la région générale)
 2. La réputation œnologique du millésime indiqué (qualité, précocité, longévité)
 3. Le positionnement dans le temps par rapport à la fenêtre de dégustation généralement admise
 4. Les caractéristiques du producteur si elles influencent la garde (élevage, extraction, rendements)
 Sois régulier et reproductible : pour un vin donné, une même analyse doit conduire à la même fenêtre. Évite les jugements extrêmes non justifiés.
+— REPÈRES DE GARDE (durées indicatives depuis le millésime — l'appellation prime) —
+• TRÈS courte (0–3 ans) : Muscadet, Picpoul, Entre-deux-mers, Gros Plant, rosés, primeurs/nouveau, blancs vifs légers.
+• Courte (1–4 ans) : Sauvignon (Sancerre, Pouilly-Fumé), Condrieu et autres Viognier, Beaujolais/Gamay, Alsace générique, la plupart des blancs aromatiques.
+• Moyenne (3–10 ans) : Chablis et Bourgogne blanc village, Bordeaux blanc sec, Loire rouge (Chinon…), Côtes-du-Rhône, Languedoc de garde.
+• Longue (5–20+ ans) : Bordeaux rouge classé, Bourgogne 1er/Grand cru, Rhône nord (Hermitage, Côte-Rôtie), Châteauneuf, Chenin de garde (Vouvray/Savennières), Riesling Grand cru, grands Italiens (Barolo, Brunello).
+⚠️ PRINCIPE DE PRÉCAUTION : en cas de doute, choisis une fenêtre PLUS PRÉCOCE. Il vaut mieux ouvrir un vin légèrement jeune qu'un vin fatigué ou oxydé. Les blancs aromatiques (Muscadet, Sauvignon, Viognier), les rosés et les rouges de fruit (Beaujolais) perdent vite leur éclat : ne leur attribue JAMAIS une longue garde.
 — RÈGLES DE COHÉRENCE ABSOLUES (à respecter impérativement) —
 1. apogeeDebut >= millésime — la fenêtre ne peut pas commencer avant la vendange
 2. apogeeFin > apogeeDebut — la fenêtre a toujours une durée positive
@@ -5754,7 +5769,7 @@ let _maturiteAbort=false;
 // Version de l'algorithme d'apogée. Incrémenter à chaque amélioration du prompt/logique :
 // au prochain recalcul "normal", tous les vins d'une version antérieure sont revalidés
 // une fois, puis figés à la version courante (plus de divergence ensuite).
-const APOGEE_ALGO_VERSION=3;
+const APOGEE_ALGO_VERSION=4;
 // Signature des paramètres qui influencent l'apogée : si elle change, on recalcule.
 function _apogeeSig(w){return _norm([w.millesime,w.couleur,w.region,w.appellation,w.cepage,w.producteur].join('|'));}
 // Un vin doit-il être (re)calculé en mode normal ?
@@ -5909,7 +5924,7 @@ function initMaturiteHeuristique(){
     if(w.apogeeDebut&&w.apogeeFin)return; // données complètes déjà présentes → on ne touche pas
     // Estimation à partir du millésime (ou de l'année d'ajout si millésime inconnu)
     const millesime=w.millesime||(w.addedAt?parseInt(w.addedAt.slice(0,4)):null)||nowYear-2;
-    const est=computeApogeeHeuristic(w.couleur||'rouge',w.region||'',millesime);
+    const est=computeApogeeHeuristic(w.couleur||'rouge',w.region||'',millesime,w.appellation||'',w.cepage||'');
     if(est.apogeeDebut&&est.apogeeFin){
       w.apogeeDebut=est.apogeeDebut;
       w.apogeeFin=est.apogeeFin;
@@ -6520,7 +6535,7 @@ function saveMilWizYear(id){
   const w=db.wines.find(x=>x.id===id);if(!w)return;
   w.millesime=y;
   if(!w.apogeeDebut||!w.apogeeFin){
-    const est=computeApogeeHeuristic(w.couleur,w.region||'',y);
+    const est=computeApogeeHeuristic(w.couleur,w.region||'',y,w.appellation||'',w.cepage||'');
     if(est.apogeeDebut){w.apogeeDebut=est.apogeeDebut;w.apogeeFin=est.apogeeFin;w.maturiteHeuristique=true;}
   }
   _milWizSkipped.delete(id);
@@ -6602,7 +6617,7 @@ RÈGLES :
       _aiApogeeDebut=_photoSane.apogeeDebut||null;
       _aiApogeeFin=_photoSane.apogeeFin||null;
       if(!_aiApogeeDebut||!_aiApogeeFin){
-        const est=computeApogeeHeuristic(info.couleur||'rouge',info.region||'',info.millesime);
+        const est=computeApogeeHeuristic(info.couleur||'rouge',info.region||'',info.millesime,info.appellation||'',info.cepage||'');
         if(est.apogeeDebut&&est.apogeeFin){_aiApogeeDebut=est.apogeeDebut;_aiApogeeFin=est.apogeeFin;}
       }
       set('add-nom',info.nom);set('add-millesime',info.millesime);set('add-appellation',info.appellation);
